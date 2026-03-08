@@ -14,7 +14,7 @@ def load_apifile_conf():
     
     # 設定ファイル読み込み
     config = configparser.ConfigParser()
-    config.read("/opt/Innovations/System/config.ini", encoding="utf-8")
+    config.read("/etc/AutoTrade/config.ini", encoding="utf-8")
     log_level = config.get("API", "SOURCE", fallback="file")# デフォルトは有効(1)
     return log_level
 

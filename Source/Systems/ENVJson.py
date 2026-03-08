@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 JST = ZoneInfo("Asia/Tokyo")
-STOP_STATE_PATH = "/opt/Innovations/System/trade_stop_date.json"
+STOP_STATE_PATH = "/etc/AutoTrade/trade_stop_date.json"
 
 REASON_LOSS = 1      # 損失
 REASON_PROFIT = 2    # 利益確保

@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SETTINGS_DB = Path("api_settings.db")
-LOG_DB = Path("trade_logs.db")
+LOG_DB = Path("/var/log/AutoTrade/trade_logs.db")
 
 def write_log(action, price):
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')

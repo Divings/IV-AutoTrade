@@ -55,7 +55,7 @@ def load_conf_FILTER():
     
     # 設定ファイル読み込み
     config = configparser.ConfigParser()
-    config.read("/opt/Innovations/System/config.ini", encoding="utf-8")
+    config.read("/etc/AutoTrade/config.ini", encoding="utf-8")
     log_level = config.getint("RANGE_FILTER", "enable", fallback=1)# デフォルトは有効(1)
     return log_level
 
@@ -64,7 +64,7 @@ def load_conf_HOLD():
     
     # 設定ファイル読み込み
     config = configparser.ConfigParser()
-    config.read("/opt/Innovations/System/config.ini", encoding="utf-8")
+    config.read("/etc/AutoTrade/config.ini", encoding="utf-8")
     HOLD = config.getint("HOLD", "enable", fallback=1)# デフォルトは有効(1)
     DATA = config.getint("HOLD", "MAX_HOLD", fallback=420)# デフォルトは有効(1)
     return HOLD,DATA
@@ -74,7 +74,7 @@ def load_conf_TANGLE_FILTER():
     
     # 設定ファイル読み込み
     config = configparser.ConfigParser()
-    config.read("/opt/Innovations/System/config.ini", encoding="utf-8")
+    config.read("/etc/AutoTrade/config.ini", encoding="utf-8")
     log_level = config.getint("TANGLE_FILTER", "enable", fallback=0)# デフォルトは有効(1)
     return log_level
 
@@ -105,7 +105,7 @@ def load_conf_TANGLEDIST_FILTER():
     
     # 設定ファイル読み込み
     config = configparser.ConfigParser()
-    config.read("/opt/Innovations/System/config.ini", encoding="utf-8")
+    config.read("/etc/AutoTrade/config.ini", encoding="utf-8")
     log_level = config.getfloat("TANGLE_FILTER", "SMA_TANGLE_DIST", fallback=0.015)# デフォルトは有効(1)
     return log_level
 
@@ -173,7 +173,7 @@ def load_Auth_conf():
     
     # 設定ファイル読み込み
     config = configparser.ConfigParser()
-    config.read("/opt/Innovations/System/config.ini", encoding="utf-8")
+    config.read("/etc/AutoTrade/config.ini", encoding="utf-8")
     log_level = config.getint("Auth", "enable", fallback=1)# デフォルトは有効(1)
     return log_level
 
@@ -182,7 +182,7 @@ def load_apifile_conf():
     
     # 設定ファイル読み込み
     config = configparser.ConfigParser()
-    config.read("/opt/Innovations/System/config.ini", encoding="utf-8")
+    config.read("/etc/AutoTrade/config.ini", encoding="utf-8")
     log_level = config.get("API", "SOURCE", fallback="file")# デフォルトは有効(1)
     return log_level
 
@@ -1154,8 +1154,8 @@ from load_xml import load_config_from_xml
 # 設定読み込み
 import os
 api_settings = load_apifile_conf()
-if os.path.exists("bot_config.xml"):
-    config = load_config_from_xml("bot_config.xml")
+if os.path.exists("/etc/AutoTrade/bot_config.xml"):
+    config = load_config_from_xml("/etc/AutoTrade/bot_config.xml")
     load_config_status="設定ソース:xml"
 else:
 # === 設定読み込み ===

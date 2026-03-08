@@ -132,7 +132,7 @@ def sum_yesterday_realized_pnl_at_midnight(
     return pnl, cnt
 
 def init_sqlite() -> sqlite3.Connection:
-    DB_PATH = "daily_amount.db"
+    DB_PATH = "/var/lib/AutoTrade/daily_amount.db"
     conn = sqlite3.connect(Path(DB_PATH))
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA foreign_keys=ON;")
