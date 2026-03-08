@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 # .env読み込み
 load_dotenv()
 
-DB_PATH = Path("api_settings.db")
+DB_PATH = Path("/etc/AutoTrade/api_settings.db")
 
 def load_apifile_conf():
     import configparser
