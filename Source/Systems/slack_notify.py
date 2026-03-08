@@ -6,7 +6,7 @@ import configparser
 import hashlib
 from datetime import datetime
 from dotenv import load_dotenv
-from conf_load import load_settings_from_db
+from conf_load import load_settings_from_db,load_settings_from_sqlite()
 
 # .env を読み込む（TELEGRAM_TOKEN / TELEGRAM_CHAT_ID を使うため）
 load_dotenv()
@@ -59,9 +59,14 @@ debug, default_service = load_config()
 # Slack Webhook URL（暗号化済み）
 config1 = load_settings_from_db()
 
-# Slack Webhook URL の復号
-_slack_enc = config1.get("SLACK_WEBHOOK_URL")
-
+try:
+    # Slack Webhook URL の復号
+    _slack_enc = config1.get("SLACK_WEBHOOK_URL")
+except AttributeError:
+    print("[設定エラー] SLACK_WEBHOOK_URL が見つかりません。DB からの読み込みに失敗しています。")
+    config1=load_settings_from_sqlite()
+    _slack_enc = config1.get("SLACK_WEBHOOK_URL")
+    
 def load_apifile_conf():
     import configparser
     
