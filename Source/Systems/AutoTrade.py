@@ -190,7 +190,7 @@ def load_Log_conf():
     import configparser
     # 設定ファイル読み込み
     config = configparser.ConfigParser()
-    config.read("/opt/Innovations/System/logconfig.ini", encoding="utf-8")
+    config.read("/etc/AutoTrade/logconfig.ini", encoding="utf-8")
     log_level = config.get("DEFAULT", "log_level", fallback="ERROR")# デフォルトは有効(1)
     return log_level
 
@@ -430,18 +430,12 @@ BLOCKCHAIN_HEADER = b'BLOCKCHAIN_DATA_START\n'
 
 # README書き込み関数
 def write_README(temp_dir,path,message):
-    if path!=None:
-        save_dir = temp_dir + path +"README.txt"
-    else:
-        save_dir = temp_dir + "/README.txt"
-    # ファイルに保存
-    with open(save_dir, "w", encoding="utf-8") as f:
-        f.write(message)
+    return
 
 txt_message="このディレクトリは各種ログが記録されます。\nシステム再起動の原因となるため、手動取引を行う場合あらかじめシステムを停止してください。\nシステムの再起動により発生したすべての損害を開発者は補償しません\n"
 
 def write_info(id,temp_dir):
-    save_dir = temp_dir + "/log/" + str(id) + "_order_info.json"
+    save_dir = "/var/log/AutoTrade/" + str(id) + "_order_info.json"
     endPoint  = 'https://forex-api.coin.z.com/private'
     path      = '/v1/orders'
     method    = 'GET'
@@ -682,23 +676,10 @@ def is_trend_initial(candles, min_body_size=0.003, min_breakout_ratio=0.005):
     return False, ""
 
 # ===ログ設定 ===
-LOG_FILE1 = f"{temp_dir}/fx_debug_log.txt"
-try:
-    _log_last_reset = datetime.now()
-except:
-    _log_last_reset = datetime.now()
-os.makedirs("last_temp", exist_ok=True)
+LOG_FILE1 = f"/var/log/AutoTrade/fx_debug_log.txt"
+
 now = datetime.now()
 import shutil
-# フォーマット
-formatted = now.strftime("%Y/%m/%d %H:%M")
-if os.path.exists(f"last_temp/last_temp.txt"):
-    shutil.copyfile("last_temp/last_temp.txt", "last_temp/last_temp.txt.bak")
-    
-with open(f"last_temp/last_temp.txt", "w", encoding="utf-8") as f:
-    f.write(f"最終記録 {formatted} \n")
-    f.write(temp_dir)
-    f.write("\n")
 
 # OS判定
 import platform
