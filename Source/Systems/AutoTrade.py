@@ -1,0 +1,2729 @@
+# Copyright (c) 2025 合同会社Anvelk Innovations All Rights Reserved.
+# 本ソフトウェアは 合同会社Anvelk Innovations のプロプライエタリライセンスに基づいて提供されています。
+# 本ソフトウェアの使用、複製、改変、再配布には 合同会社Anvelk Innovations の事前の書面による許可が必要です。
+
+from Amount_DB import upsert_daily_pnl,get_yesterday_pnl,get_today_pnl
+import news_block
+import os
+import hmac
+import hashlib
+import json
+import requests
+import time
+import csv
+from zoneinfo import ZoneInfo
+import logging
+from datetime import datetime,timedelta
+from dotenv import load_dotenv
+from slack_notify import notify_slack
+import sys
+import asyncio
+import statistics
+import pandas as pd
+import statistics
+import signal
+from Amount_Sum import sum_yesterday_realized_pnl_at_midnight, save_daily_summary,get_yesterday_total_amount_from_sqlite
+from collections import deque
+import mysql.connector
+from conf_load import load_settings_from_db
+from datetime import datetime, timedelta
+from logging.handlers import TimedRotatingFileHandler
+from socket_server import start_socket_server
+from decimal import Decimal, ROUND_HALF_UP
+from state_utils import (
+    save_state,
+    load_state,
+    save_price_buffer,
+    load_price_buffer,
+    load_price_history,
+    save_price_history
+)
+
+from Price import extract_price_from_response
+from logs import write_log
+from Assets import assets
+from configs import load_weekconfigs
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+
+JST = ZoneInfo("Asia/Tokyo")
+STOP_ENV = 0 # 取引中断判定用変数
+
+def load_conf_FILTER():
+    import configparser
+    
+    # 設定ファイル読み込み
+    config = configparser.ConfigParser()
+    config.read("/opt/Innovations/System/config.ini", encoding="utf-8")
+    log_level = config.getint("RANGE_FILTER", "enable", fallback=1)# デフォルトは有効(1)
+    return log_level
+
+def load_conf_HOLD():
+    import configparser
+    
+    # 設定ファイル読み込み
+    config = configparser.ConfigParser()
+    config.read("/opt/Innovations/System/config.ini", encoding="utf-8")
+    HOLD = config.getint("HOLD", "enable", fallback=1)# デフォルトは有効(1)
+    DATA = config.getint("HOLD", "MAX_HOLD", fallback=420)# デフォルトは有効(1)
+    return HOLD,DATA
+
+def load_conf_TANGLE_FILTER():
+    import configparser
+    
+    # 設定ファイル読み込み
+    config = configparser.ConfigParser()
+    config.read("/opt/Innovations/System/config.ini", encoding="utf-8")
+    log_level = config.getint("TANGLE_FILTER", "enable", fallback=0)# デフォルトは有効(1)
+    return log_level
+
+# events_df = pd.DataFrame(columns=["datetime", "impact_level", "event"])
+skip_until = None
+
+value = load_weekconfigs()
+
+# SMA計算関数
+def sma(values, period):
+    if len(values) < period:
+        return None
+    return sum(values[-period:]) / period
+
+# リスト変換関数
+def convert_list(prices):
+    # deque, list, tuple のいずれかか確認
+    if not isinstance(prices, (list, tuple, deque)) or len(prices) < 2:
+        return False
+
+    # dequeの場合はリストに変換
+    if isinstance(prices, deque):
+        prices = list(prices)
+    return prices
+
+def load_conf_TANGLEDIST_FILTER():
+    import configparser
+    
+    # 設定ファイル読み込み
+    config = configparser.ConfigParser()
+    config.read("/opt/Innovations/System/config.ini", encoding="utf-8")
+    log_level = config.getfloat("TANGLE_FILTER", "SMA_TANGLE_DIST", fallback=0.015)# デフォルトは有効(1)
+    return log_level
+
+SMA_TANGLE_DIST = load_conf_TANGLEDIST_FILTER()
+def is_sma_tangled(sma5, sma13):
+    return abs(sma5 - sma13) <= SMA_TANGLE_DIST
+
+# 買い・売り判定関数
+def can_buy(closes):
+    closes = convert_list(closes)
+    if closes is False:
+        return False
+    sma5  = sma(closes, 5)
+    sma13 = sma(closes, 13)
+    sma25 = sma(closes, 25)
+
+    if None in (sma5, sma13, sma25):
+        return False
+    
+    if load_conf_TANGLE_FILTER()==1:
+        if is_sma_tangled(sma5, sma13):
+            return False
+    
+    # 上昇トレンド条件
+    return sma5 > sma13 > sma25
+
+# 売り判定関数
+def can_sell(closes):
+    closes = convert_list(closes)
+    if closes is False:
+        return False
+    sma5  = sma(closes, 5)
+    sma13 = sma(closes, 13)
+    sma25 = sma(closes, 25)
+
+    if None in (sma5, sma13, sma25):
+        return False
+    
+    if load_conf_TANGLE_FILTER()==1:
+        if is_sma_tangled(sma5, sma13):
+            return False
+    
+    return sma5 < sma13 < sma25
+
+# 横ばい判定関数(SMA団子)
+def is_sideways_sma(close_prices, threshold=0.015):
+    values = convert_list(close_prices)
+
+    if len(values) < 25:
+        return True  # データ不足は横ばい扱い
+
+    sma5  = sum(values[-5:]) / 5
+    sma13 = sum(values[-13:]) / 13
+    sma25 = sum(values[-25:]) / 25
+
+    max_sma = max(sma5, sma13, sma25)
+    min_sma = min(sma5, sma13, sma25)
+
+    # SMAが団子なら横ばい
+    return (max_sma - min_sma) < threshold
+
+# FILTER設定読み込み(1:有効,0:無効)
+def load_Auth_conf():
+    import configparser
+    
+    # 設定ファイル読み込み
+    config = configparser.ConfigParser()
+    config.read("/opt/Innovations/System/config.ini", encoding="utf-8")
+    log_level = config.getint("Auth", "enable", fallback=1)# デフォルトは有効(1)
+    return log_level
+
+def load_apifile_conf():
+    import configparser
+    
+    # 設定ファイル読み込み
+    config = configparser.ConfigParser()
+    config.read("/opt/Innovations/System/config.ini", encoding="utf-8")
+    log_level = config.get("API", "SOURCE", fallback="file")# デフォルトは有効(1)
+    return log_level
+
+def load_Log_conf():
+    import configparser
+    # 設定ファイル読み込み
+    config = configparser.ConfigParser()
+    config.read("/opt/Innovations/System/logconfig.ini", encoding="utf-8")
+    log_level = config.get("DEFAULT", "log_level", fallback="ERROR")# デフォルトは有効(1)
+    return log_level
+
+Auth = load_Auth_conf() # 1:有効,0:無効
+
+import sqlite3
+from Crypto.Cipher import AES
+import base64
+
+from Crypto.Random import get_random_bytes
+from pathlib import Path
+
+KEY_FILE = Path("aes_key.bin")
+
+def load_or_create_aes_key():
+    if KEY_FILE.exists():
+        return KEY_FILE.read_bytes()
+    key = get_random_bytes(32)
+    KEY_FILE.write_bytes(key)
+    try:
+        KEY_FILE.chmod(0o600)
+    except:
+        pass
+    return key
+
+AES_KEY = load_or_create_aes_key()
+
+# AES暗号化・復号化関数
+def aes_encrypt(text: str) -> str:
+    cipher = AES.new(AES_KEY, AES.MODE_GCM)
+    ciphertext, tag = cipher.encrypt_and_digest(text.encode())
+    return base64.b64encode(cipher.nonce + tag + ciphertext).decode()
+
+# AES復号化関数
+def aes_decrypt(token: str) -> str:
+    raw = base64.b64decode(token)
+    nonce = raw[:16]
+    tag = raw[16:32]
+    ciphertext = raw[32:]
+    cipher = AES.new(AES_KEY, AES.MODE_GCM, nonce=nonce)
+    return cipher.decrypt_and_verify(ciphertext, tag).decode()
+
+# SQLite から API_KEY と API_SECRET を取得し、AES復号して返す
+def load_api_settings_sqlite(db_path="api_settings.db"):
+    """
+    SQLite から API_KEY と API_SECRET を取得し、AES復号して返す
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT name, value FROM api_settings WHERE name IN ('API_KEY', 'API_SECRET')"
+    )
+    rows = dict(cursor.fetchall())
+    conn.close()
+
+    api_key_enc = rows.get("API_KEY", "")
+    api_secret_enc = rows.get("API_SECRET", "")
+
+    if not api_key_enc or not api_secret_enc:
+        return "", ""
+
+    try:
+        api_key = aes_decrypt(api_key_enc)
+        api_secret = aes_decrypt(api_secret_enc)
+    except Exception as e:
+        raise RuntimeError("API設定の復号に失敗しました") from e
+
+    return api_key, api_secret
+
+# ミッドナイトモード(Trueで有効化)
+night = True
+SYS_VER = "106.15.0"
+
+import numpy as np
+
+# prices から直近 n 本のローソク足を構築
+def build_last_n_candles_from_prices(prices: list[float], n: int = 20) -> list[dict]:
+    """
+    prices から直近 n 本のローソク足を構築
+    1本あたり20ティックで構成
+    """
+    ticks_per_candle = 20
+    max_candles = len(prices) // ticks_per_candle
+    candles_to_build = min(n, max_candles)
+
+    if candles_to_build == 0:
+        logging.warning("データが不足しています。ローソク足を生成できません。")
+        return []
+
+    logging.info(f"price_bufferの長さ: {len(prices)} / 作れるローソク足: {candles_to_build}")
+
+    candles = []
+
+    for i in range(candles_to_build):
+        end = len(prices) - i * ticks_per_candle
+        start = max(0, end - ticks_per_candle)
+        slice = prices[start:end]
+        if not slice:
+            continue
+        candle = {
+            "open": slice[0],
+            "close": slice[-1],
+            "high": max(slice),
+            "low": min(slice),
+        }
+        candles.insert(0, candle)  # 時系列順にするため先頭に挿入
+
+    return candles
+
+
+# 価格バッファから指定期間の高低差を計算
+def calculate_range(price_buffer, period=10):
+    candles = build_last_n_candles_from_prices(list(price_buffer), n=period)
+
+    if not candles:
+        # ローソク足が1本も作れなければ None
+        return None
+
+    actual_period = min(period, len(candles))
+    highs = [candle['high'] for candle in candles[-actual_period:]]
+    lows  = [candle['low'] for candle in candles[-actual_period:]]
+
+    return max(highs) - min(lows)
+
+# DMI（ADX）を計算する関数
+def calculate_dmi(highs, lows, closes, period=14):
+    highs = np.array(highs)
+    lows = np.array(lows)
+    closes = np.array(closes)
+
+    plus_dm = np.zeros_like(highs)
+    minus_dm = np.zeros_like(lows)
+
+    for i in range(1, len(highs)):
+        up_move = highs[i] - highs[i-1]
+        down_move = lows[i-1] - lows[i]
+
+        plus_dm[i] = up_move if (up_move > down_move and up_move > 0) else 0
+        minus_dm[i] = down_move if (down_move > up_move and down_move > 0) else 0
+
+    tr = np.maximum(highs[1:] - lows[1:], 
+                    np.maximum(np.abs(highs[1:] - closes[:-1]),
+                               np.abs(lows[1:] - closes[:-1])))
+
+    plus_di = 100 * (np.convolve(plus_dm[1:], np.ones(period), 'valid') / period) / (np.convolve(tr, np.ones(period), 'valid') / period)
+    minus_di = 100 * (np.convolve(minus_dm[1:], np.ones(period), 'valid') / period) / (np.convolve(tr, np.ones(period), 'valid') / period)
+
+    return plus_di, minus_di
+
+import os
+import shutil
+import requests
+from EncryptSecureDEC import decrypt_file
+
+import statistics
+
+import platform
+
+# ボラティリティ判定関数
+def is_volatile(prices, candles, period=5):
+    import statistics
+    from collections import deque
+
+    if not isinstance(prices, (list, tuple, deque)) or len(prices) < period + 10:
+        return False
+    if not isinstance(candles, list) or len(candles) < period + 10:
+        return False
+
+    if isinstance(prices, deque):
+        prices = list(prices)
+
+    try:
+        recent_prices = prices[-period:]
+        stdev_value = statistics.stdev(recent_prices)
+
+        # 過去の中央値と比べてボラが高いか判断
+        historical_stdevs = [statistics.stdev(prices[i - period:i]) for i in range(period, period + 10)]
+        median_stdev = statistics.median(historical_stdevs)
+        dynamic_threshold_stdev = median_stdev * 1.2  # ←過去より20%高ければボラ高
+
+    except statistics.StatisticsError:
+        return False
+
+    # 動的しきい値でチェック
+    if stdev_value > dynamic_threshold_stdev:
+        return True
+
+    # ヒゲ比率チェック（直近のローソク足）
+    last = candles[-1]
+    body = abs(last["open"] - last["close"])
+    high = last["high"]
+    low = last["low"]
+    wick_upper = high - max(last["open"], last["close"])
+    wick_lower = min(last["open"], last["close"]) - low
+    wick_ratio = (wick_upper + wick_lower) / (body + 1e-5)  # 0除算回避
+
+    avg_candle_size = statistics.mean([c["high"] - c["low"] for c in candles[-10:]])
+    dynamic_wick_ratio_threshold = 2.0 if avg_candle_size < 0.5 else 1.0
+
+    if wick_ratio > dynamic_wick_ratio_threshold:
+        return True
+
+    # 高低差によるチェック
+    highlow_diff = high - low
+    avg_highlow = statistics.mean([c["high"] - c["low"] for c in candles[-10:]])
+    if highlow_diff > avg_highlow * 1.5:
+        return True
+
+    return False  # 安定
+
+# ファイルを2つダウンロードする関数
+def download_two_files(base_url, download_dir):
+    filenames = ["API.txt.vdec", "SECRET.txt.vdec"]
+    
+    for filename in filenames:
+        url = f"{base_url}/{filename}"
+        download_path = os.path.join(download_dir, filename)
+        
+        response = requests.get(url, stream=True)
+        if response.status_code != 200:
+            raise Exception(f"Failed to download file {filename}: {response.status_code}")
+        
+        with open(download_path, 'wb') as f:
+            shutil.copyfileobj(response.raw, f)
+                
+import os
+import shutil
+import requests
+import lzma
+import hashlib
+import json
+import getpass
+from Crypto.Cipher import AES
+from Crypto.Protocol.KDF import PBKDF2
+
+BLOCKCHAIN_HEADER = b'BLOCKCHAIN_DATA_START\n'
+
+# README書き込み関数
+def write_README(temp_dir,path,message):
+    if path!=None:
+        save_dir = temp_dir + path +"README.txt"
+    else:
+        save_dir = temp_dir + "/README.txt"
+    # ファイルに保存
+    with open(save_dir, "w", encoding="utf-8") as f:
+        f.write(message)
+
+txt_message="このディレクトリは各種ログが記録されます。\nシステム再起動の原因となるため、手動取引を行う場合あらかじめシステムを停止してください。\nシステムの再起動により発生したすべての損害を開発者は補償しません\n"
+
+def write_info(id,temp_dir):
+    save_dir = temp_dir + "/log/" + str(id) + "_order_info.json"
+    endPoint  = 'https://forex-api.coin.z.com/private'
+    path      = '/v1/orders'
+    method    = 'GET'
+    timestamp = str(int(time.time() * 1000))  # ミリ秒タイムスタンプ
+
+    text = timestamp + method + path
+    sign = hmac.new(
+        API_SECRET.encode('ascii'),
+        text.encode('ascii'),
+        hashlib.sha256
+    ).hexdigest()
+
+    parameters = { "rootOrderId": id }
+
+    headers = {
+        "API-KEY": API_KEY,
+        "API-TIMESTAMP": timestamp,
+        "API-SIGN": sign
+    }
+
+    res = requests.get(endPoint + path, headers=headers, params=parameters)
+
+    try:
+        response_data = res.json()
+        formatted_json = json.dumps(response_data, indent=2)
+
+        # ファイルに保存
+        with open(save_dir, "a", encoding="utf-8") as f:
+            f.write(formatted_json)
+            f.write("\n")
+
+        # print("[保存完了] order_info.json に書き込みました")
+
+    except json.decoder.JSONDecodeError:
+        print("[エラー] サーバーからの応答がJSON形式ではありません")
+        # print(res.text)
+
+# ダウンロード関数はそのまま
+def download_two_files(base_url, download_dir):
+    filenames = ["API.txt.vdec", "SECRET.txt.vdec"]
+    for filename in filenames:
+        url = f"{base_url}{filename}"
+        download_path = os.path.join(download_dir, filename)
+        response = requests.get(url, stream=True)
+        if response.status_code != 200:
+            raise Exception(f"Failed to download file {filename}: {response.status_code}")
+        with open(download_path, 'wb') as f:
+            shutil.copyfileobj(response.raw, f)
+        # print(f"Downloaded {filename} to {download_path}")
+
+# API読み込み関数
+def load_api(temp_dir):
+    
+    # パスワードを.envから読み込み
+    password = os.getenv("API_PASSWORD")
+    password2 = os.getenv("SECRET_PASSWORD")
+    if not password or not password2:
+        raise Exception("環境変数 API_PASSWORD または SECRET_PASSWORD が設定されていません")
+
+    download_two_files(URL_Auth, temp_dir)
+
+    # 復号処理
+    file_path1 = os.path.join(temp_dir, "API.txt.vdec")
+    decrypted_path1 = decrypt_file(file_path1, password)
+
+    file_path2 = os.path.join(temp_dir, "SECRET.txt.vdec")
+    decrypted_path2 = decrypt_file(file_path2, password2)
+
+    # 復号済ファイル読み取り
+    with open(decrypted_path1, 'r', encoding='utf-8') as f:
+        api_data = f.read()
+
+    with open(decrypted_path2, 'r', encoding='utf-8') as f:
+        secret_data = f.read()
+
+    # 復号後のファイルは削除
+    os.remove(file_path1)
+    os.remove(file_path2)
+    os.remove(decrypted_path1)
+    os.remove(decrypted_path2)
+
+    return api_data, secret_data
+
+# 共有状態の初期化
+shared_state = {
+    "trend": None,
+    "last_trend": None,
+    "trend_init_notice": False,
+    "last_margin_ratio": None,
+    "last_margin_notify": None,
+    "margin_alert_sent": False,
+    "last_short_ma": None,  # ← これを追加
+    "last_long_ma": None ,
+    "last_skip_notice": None,
+    "last_spread":None,  # ← これも追加
+    "rsi_adx_none_notice":False,
+    "RSI":None,
+    "entry_time":None,
+    "loss_streak":None,
+    "cooldown_until":None,
+    "vstop_active":False,
+    "adx_wait_notice":False,
+    "forced_entry_date":False,
+    "cmd":None,
+    "trend_start_time":None,
+    "oders_error":False,
+    "last_skip_hash":None,
+    "cooldown_untils":None,
+    "firsts":False,
+    "max_profit":None,  # 保有中に記録された最大利益
+    "trail_offset":20
+}
+
+# 通知系のキーを初期化
+def reset_notifications(shared_state: dict):
+    keys_to_reset = {
+        "trend_init_notice": False,
+        "margin_alert_sent": False,
+        "adx_wait_notice": False,
+        "rsi_adx_none_notice": False,
+        "last_skip_notice": None,
+        "last_margin_notify": None,
+        "last_skip_hash": None,
+    }
+
+    for key, value in keys_to_reset.items():
+        shared_state[key] = value
+
+reset_notifications(shared_state)
+
+import configparser
+
+# iniファイル読み込み関数
+def load_ini():
+    try:
+        # ConfigParser オブジェクトを作成
+        config = configparser.ConfigParser()
+        # config.ini を読み込む
+        config.read('config.ini')
+        reset = config.getboolean('settings', 'reset')
+    except:
+        reset = False
+    return reset
+
+# testmode読み込み関数
+def load_testmode():
+    import os
+    if os.path.exists('config.ini'):
+        # ConfigParser オブジェクトを作成
+        config = configparser.ConfigParser()
+
+        # ファイルを読み込む
+        config.read('config.ini')
+
+        # 値を取得
+        host = config.get('settings', 'TEST_MODE')
+        return int(host)
+    else:
+        return 0
+
+# メイン処理開始
+testmode = load_testmode()
+reset = load_ini()
+args=sys.argv
+file_path = sys.argv[0]  # スクリプトファイルのパス
+folder_path = os.path.dirname(os.path.abspath(file_path))
+os.chdir(folder_path)
+
+import tempfile
+
+temp_dir = tempfile.mkdtemp()
+os.makedirs(temp_dir + "/" + "log", exist_ok=True)
+key_box = tempfile.mkdtemp()
+session = requests.Session() # セッションを生成
+
+txt_message="このシステムは合同会社Anvelk Innovationsの所有物です。\n正規の手段、手順以外で得たコードを使用した場合、法的措置の対象となる場合があります。\n\n"
+write_README(temp_dir,"/log/",txt_message)
+write_README(temp_dir,None,txt_message)
+TEST = False # デバッグ用フラグ
+spread_history = deque(maxlen=5)
+
+# MACD計算関数
+def calc_macd(close_prices, short_period=12, long_period=26, signal_period=9):
+    #MACDとシグナルラインを返す
+    close_series = pd.Series(close_prices)
+    ema_short = close_series.ewm(span=short_period).mean()
+    ema_long = close_series.ewm(span=long_period).mean()
+    macd = ema_short - ema_long
+    signal = macd.ewm(span=signal_period).mean()
+    return macd.tolist(), signal.tolist()
+
+# 初動判定関数
+def is_trend_initial(candles, min_body_size=0.003, min_breakout_ratio=0.005):
+    """
+    ローソク足リスト（最低2本）から初動を判定（緩め）
+    """
+    if shared_state.get("cooldown_untils", 0) > time.time():
+        # まだクールタイム中
+        notify_slack("[スキップ] クールタイム中なので初動判定をスキップ")
+        return False, ""
+
+    if len(candles) < 2:
+        return False, ""
+
+    # 末尾の2本を使う
+    prev = candles[-2]
+    last = candles[-1]
+
+    body_last = abs(last["close"] - last["open"])
+    body_prev = abs(prev["close"] - prev["open"])
+    range_prev = prev["high"] - prev["low"]
+    range_last = last["high"] - last["low"]
+
+    # 最低実体サイズチェック
+    if body_last < min_body_size:
+        return False, ""
+    
+    if (range_last / body_last) > 4:
+        return False, ""  # ヒゲ比率が高すぎる場合は除外
+
+    # 買いの初動
+    if (
+        last["close"] > prev["high"] and
+        (last["close"] - last["open"]) > body_prev and
+        last["close"] > last["open"] and
+        (last["close"] - prev["high"]) >= min_breakout_ratio
+    ):
+        return True, "BUY"
+
+    # 売りの初動
+    if (
+        last["close"] < prev["low"] and
+        (last["open"] - last["close"]) > body_prev and
+        last["close"] < last["open"] and
+        (prev["low"] - last["close"]) >= min_breakout_ratio
+    ):
+        return True, "SELL"
+    return False, ""
+
+# ===ログ設定 ===
+LOG_FILE1 = f"{temp_dir}/fx_debug_log.txt"
+try:
+    _log_last_reset = datetime.now()
+except:
+    _log_last_reset = datetime.now()
+os.makedirs("last_temp", exist_ok=True)
+now = datetime.now()
+import shutil
+# フォーマット
+formatted = now.strftime("%Y/%m/%d %H:%M")
+if os.path.exists(f"last_temp/last_temp.txt"):
+    shutil.copyfile("last_temp/last_temp.txt", "last_temp/last_temp.txt.bak")
+    
+with open(f"last_temp/last_temp.txt", "w", encoding="utf-8") as f:
+    f.write(f"最終記録 {formatted} \n")
+    f.write(temp_dir)
+    f.write("\n")
+
+# OS判定
+import platform
+os_name = platform.system()
+
+if os_name=="Windows":
+    print(temp_dir)
+
+logleval=load_Log_conf()
+
+# ログ設定関数
+def setup_logging():
+    """初期ログ設定（起動時）"""
+    handler = TimedRotatingFileHandler(
+        LOG_FILE1,
+        when='midnight',       # 毎日深夜にローテート
+        interval=1,            # 1日ごとにローテート
+        backupCount=7,         # 最大7個のバックアップファイルを保持
+        encoding='utf-8',      # エンコーディング指定
+        utc=False              # 日本時間でのローテーション
+    )
+
+    handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+
+    logging.basicConfig(
+        level=logleval,
+        handlers=[handler]
+    )
+
+# 最大240本まで保持（例：1分足で4時間分）
+price_history = deque(maxlen=240)
+
+asf=1
+try:
+    setup_logging()
+except Exception as e:
+    print(f"ログ初期化時にエラー: {e}")
+notify_slack("自動売買システム起動")
+
+
+# == 記録済みデータ読み込み ===
+shared_state = load_state()
+reset_notifications(shared_state)
+
+
+price_buffer = load_price_buffer()
+
+# LOG_FILE = "fx_trade_log.csv"
+LOSS_STREAK_THRESHOLD = 3
+
+COOLDOWN_DURATION_SEC = 180  # 3分間
+
+# デフォルト設定値
+DEFAULT_CONFIG = {
+    "LOT_SIZE": 1000,
+    "MAX_SPREAD": 0.03,
+    "MAX_LOSS": 20,
+    "MIN_PROFIT": 40,
+    "CHECK_INTERVAL": 3,
+    "MAINTENANCE_MARGIN_RATIO": 0.5,
+    "VOL_THRESHOLD": 0.03,
+    "TIME_STOP":6,
+    "MACD_DIFF_THRESHOLD":0.002,
+    "SKIP_MODE":0,
+    "SYMBOL":"USD_JPY",
+    "USD_TIME":0,
+    "MAX_Stop":30,
+    "LOSS_STOP":0,
+    "YDAY_UP_STOP":50
+}
+
+# グローバル変数初期化
+macd_valid = False
+macd_reason = ""
+
+# 連敗記録関数
+def record_result(profit, shared_state):
+    if profit < 0:
+        shared_state["loss_streak"] = shared_state.get("loss_streak", 0) + 1
+        if shared_state["loss_streak"] >= LOSS_STREAK_THRESHOLD:
+            shared_state["cooldown_until"] = time.time() + COOLDOWN_DURATION_SEC
+            notify_slack(f"[連敗クールダウン] {LOSS_STREAK_THRESHOLD}連敗のため{COOLDOWN_DURATION_SEC//60}分間停止")
+    else:
+        shared_state["loss_streak"] = 0  # 勝てばリセット
+
+# クールダウン中かどうか判定
+def is_in_cooldown(shared_state):
+    cooldown_until = shared_state.get("cooldown_until", 0)
+    return time.time() < cooldown_until, max(0, int(cooldown_until - time.time()))
+
+def record_result_block(profit, shared_state):
+    global testmode
+    if LOSS_STOP==0: # 0の場合は無効
+        return
+    if profit < 0:
+        shared_state["loss_streak"] = shared_state.get("loss_streak", 0) + 1
+        if shared_state["loss_streak"] >= LOSS_STOP:
+            shared_state["cooldown_until"] = time.time() + COOLDOWN_DURATION_SEC
+            notify_slack(f"[連敗クールダウン] {LOSS_STOP}連敗のため取引中止")
+            failSafe(0)
+            testmode=1
+
+# 逆サイド取得関数
+def reverse_side(side: str) -> str:
+    return "SELL" if side.upper() == "BUY" else "BUY"
+
+# == 建玉保有状況監視タスク ==
+async def monitor_hold_status(shared_state, stop_event, interval_sec=1):
+    last_notified = {}  # 建玉ごとの通知済みprofit記録
+    status,MAX_HOLD = load_conf_HOLD()
+    while not stop_event.is_set():
+        positions = get_positions()
+        prices = get_price()
+        if prices is None:
+            await asyncio.sleep(interval_sec)
+            continue
+
+        ask = prices["ask"]
+        bid = prices["bid"]
+        etime=shared_state.get("entry_time")
+        for pos in positions:
+            pid = pos["positionId"]
+            elapsed = time.time() - etime
+            entry = float(pos["price"])
+            size = int(pos["size"])
+            side = pos.get("side", "BUY").upper()
+            EXTENDABLE_LOSS = -10  # 許容する微損（円）
+            profit = round((ask - entry if side == "BUY" else entry - bid) * LOT_SIZE, 2)
+
+            if elapsed > MAX_HOLD:
+                
+                if profit > EXTENDABLE_LOSS and shared_state.get("trend") == side:
+                    logging.info("[延長] 保有時間超過だがトレンド継続中のため保持")
+                    return  # 決済せず延長
+                else:
+                    if status == 0:
+                        logging.info("延長 保有時間超過だが保有スキップ設定無効のため保持")
+                        return
+                    else:
+                        notify_slack(f"注意! 保有時間が長すぎます\n 強制決済を発動します {profit}")
+                        rside = reverse_side(side)
+                        close_order(pid, size, rside)
+                        record_result(profit, shared_state)
+                
+            # 通知条件：利益または損失が±10円以上、かつ通知内容が前回と違うとき
+            if abs(profit) > 10:
+                prev = last_notified.get(pid)
+                if prev is None or abs(prev - profit) >= 5:  # 5円以上変化時のみ再通知
+                    notify_slack(f"[保有] 建玉{pid} 継続中: {profit}円")
+                    last_notified[pid] = profit
+        await asyncio.sleep(interval_sec)
+
+# エントリースキップ判定関数
+def should_skip_entry(candles, direction: str, recent_resistance=None, recent_support=None, atr=None, min_atr=0.05):
+    """
+    BUY or SELL エントリー直前にスキップすべきかどうかを判定する関数
+    改善版：トレンド方向、高値/安値水準、ボラティリティも考慮
+
+    Args:
+        candles (list[dict]): 過去のローソク足（最低2本必要）
+        direction (str): "BUY" または "SELL"
+        recent_resistance (float): 直近の高値ゾーン
+        recent_support (float): 直近の安値ゾーン
+        atr (float): 現在のATR値
+        min_atr (float): 最低限のボラティリティしきい値
+
+    Returns:
+        (bool, str): (スキップすべきか, 理由メッセージ)
+    """
+    last = candles[-1]
+    prev = candles[-2]
+
+    open1, close1 = prev["open"], prev["close"]
+    high1, low1 = prev["high"], prev["low"]
+    open2, close2 = last["open"], last["close"]
+    high2, low2 = last["high"], last["low"]
+
+    def body(o, c): return abs(o - c)
+
+    # ボラティリティが低すぎる
+    if atr is not None and atr < min_atr:
+        return True, f"ボラティリティ不足（ATR={atr:.3f} < {min_atr}） → 見送り"
+
+    if direction == "BUY":
+        # 直前足が陰線
+        if close1 < open1:
+            return True, "直前足が陰線 → BUY見送り"
+
+        # 上ヒゲが長い（失速）
+        upper_wick = high1 - max(open1, close1)
+        if upper_wick > body(open1, close1):
+            return True, "上ヒゲ優勢 → BUY見送り"
+        
+        range1 = candles[-1]["high"] - candles[-1]["low"]
+        range2 = candles[-2]["high"] - candles[-2]["low"]
+        avg_range = (range1 + range2) / 2
+        tolerance = avg_range * 0.3
+        
+        # 高値ゾーンに近い（過去n本の最高値に近い）
+        if recent_resistance is not None and abs(high1 - recent_resistance) < tolerance:
+            return True, "高値ゾーン接近 → BUY見送り"
+       
+    elif direction == "SELL":
+        # 直前足が陽線
+        if close1 > open1:
+            return True, "直前足が陽線 → SELL見送り"
+     
+        # 安値ゾーンに到達
+        if recent_support is not None and low1 <= recent_support:
+            return True, "安値ゾーンで長いヒゲ → SELL見送り"
+
+    return False, ""
+
+# MySQLから設定を読み込む関数
+def load_config_from_mysql():
+    try:
+        conn = mysql.connector.connect(
+            host=os.getenv("DB_HOST"),
+            port=int(os.getenv("DB_PORT", 3306)),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASS"),
+            database=os.getenv("DB_NAME")
+        )
+        cursor = conn.cursor()
+        cursor.execute("SELECT `key`, `value` FROM bot_config")
+        rows = cursor.fetchall()
+        config = DEFAULT_CONFIG.copy()
+        for key, value in rows:
+            if key in config:
+                original_type = type(DEFAULT_CONFIG[key])
+                try:
+                    if original_type == int:
+                        config[key] = int(value)
+                    elif original_type == float:
+                        config[key] = float(value)
+                    elif original_type == str:
+                        config[key] = str(value)
+                    elif original_type == bool:
+                        config[key] = value.lower() in ['true', '1', 'yes']
+                except Exception:
+                    pass  # 型変換に失敗してもスキップ
+        cursor.close()
+        conn.close()
+        return config
+    except Exception as e:
+        print(f"⚠️ 設定読み込み失敗（MySQL）：{e}")
+        return DEFAULT_CONFIG
+from Assets import get_positionLossGain
+
+import asyncio
+import time
+import logging
+from decimal import Decimal
+
+# USD/JPY前提: 0.01円 = 1pips、1000通貨で 1pips ≒ 10円
+def pnl_yen_from_prices(entry: float, bid: float, ask: float, side: str, units: int) -> float:
+    side = side.upper()
+    if side == "BUY":
+        diff = bid - entry       # BUYはBidで評価
+    else:
+        diff = entry - ask       # SELLはAskで評価
+    pips = diff / 0.01
+    yen = pips * 10 * (units / 1000)
+    return float(yen)
+
+# == 損益即時監視用タスク ==
+async def monitor_positions_fast(shared_state, stop_event, interval_sec=0.2):
+    """
+    改善点:
+    - pos["lossGain"] を使わず bid/ask + entry から損益を自前計算（検知遅れ対策）
+    - get_price() を for内で連打しない（I/O削減）
+    - close_order を asyncio.to_thread で実行（監視タスクの詰まり対策）
+    - 同一pidの二重決済防止（closing_pids）
+    - prices None / key不足 を安全に処理
+    """
+
+    SLIPPAGE_BUFFER = 5  # 円（あなたの現状に合わせて維持）
+    # 損切りだけは多少スプレッド拡大でも通すなら、ここをMAX_SPREADより大きくする
+    # 例: MAX_SPREAD_STOP = MAX_SPREAD * 3
+    MAX_SPREAD_STOP = None  # Noneなら損切り時もMAX_SPREADを使う
+
+    # 二重決済防止セット
+    if "closing_pids" not in shared_state:
+        shared_state["closing_pids"] = set()
+
+    while not stop_event.is_set():
+        try:
+            positions = get_positions()
+            prices = get_price()
+        except Exception as e:
+            logging.exception(f"[FAST] get_positions/get_price exception: {e}")
+            await asyncio.sleep(interval_sec)
+            continue
+
+        if not prices or "ask" not in prices or "bid" not in prices:
+            await asyncio.sleep(interval_sec)
+            continue
+
+        if not positions:
+            await asyncio.sleep(interval_sec)
+            continue
+
+        ask = float(prices["ask"])
+        bid = float(prices["bid"])
+        spread = ask - bid
+
+        for pos in positions:
+            try:
+                pid = pos["positionId"]
+                if pid in shared_state["closing_pids"]:
+                    continue
+
+                entry = float(pos["price"])
+                units = int(pos["size"])  # あなたの前提: 1000
+                side = (pos.get("side", "BUY") or "BUY").upper()
+                close_side = "SELL" if side == "BUY" else "BUY"
+
+                # lossGainではなく、自前損益で判定（ここが一番重要）
+                profit = pnl_yen_from_prices(entry, bid, ask, side, units)
+
+                # ここで「観測値」をログに残すと、遅延/ズレの検証が一発でできる
+                logging.warning(f"[FASTCHK] pid={pid} side={side} entry={entry} bid={bid} ask={ask} pnl={profit:.1f} spread={spread:.4f}")
+
+                # 即時損切り判定（バッファ込みで早めに判断）
+                if profit <= (-MAX_LOSS + SLIPPAGE_BUFFER):
+                    # 損切り時のスプレッド扱い（必要なら緩める）
+                    if MAX_SPREAD_STOP is None:
+                        # 既存のMAX_SPREADで判定（あなたの現在の思想に合わせる）
+                        pass
+                    else:
+                        # 損切り時だけ許容を広げる運用（必要なら）
+                        if spread > MAX_SPREAD_STOP:
+                            notify_slack(
+                                f"[即時損切] 損失条件到達 {profit:.1f}円 だがスプレッド異常({spread:.4f})。\n"
+                                f"緊急決済を試行します。"
+                            )
+
+                    notify_slack(
+                        f"[即時損切] 損失が {profit:.1f} 円（許容: -{MAX_LOSS}円 ±{SLIPPAGE_BUFFER}）→ 強制決済実行"
+                    )
+
+                    shared_state["closing_pids"].add(pid)
+                    start = time.time()
+
+                    # close_orderがブロッキングならto_threadで逃がす
+                    try:
+                        await asyncio.to_thread(close_order, pid, units, close_side)
+                    except Exception as e:
+                        logging.exception(f"[FAST] close_order exception pid={pid}: {e}")
+                        # 決済失敗時は再試行できるように外す
+                        shared_state["closing_pids"].discard(pid)
+                        continue
+
+                    end = time.time()
+
+                    # 記録系（重いならここもto_thread化できる）
+                    try:
+                        record_result_block(profit, shared_state)
+                        record_result(profit, shared_state)
+                        write_log("LOSS_CUT_FAST", bid)
+                    except Exception as e:
+                        logging.exception(f"[FAST] record/log exception: {e}")
+
+                    # 初動フラグ周り（あなたの既存仕様を維持）
+                    if shared_state.get("firsts") == True:
+                        shared_state["cooldown_untils"] = time.time() + MAX_Stop
+                        shared_state["firsts"] = False
+
+                    elapsed = end - start
+                    if elapsed > 0.5:
+                        logging.warning(f"[遅延警告] 決済リクエストに {elapsed:.2f} 秒かかりました")
+
+                    shared_state["trend"] = None
+                    shared_state["last_trend"] = None
+                    shared_state["entry_time"] = time.time()
+
+                    # 決済完了したのでpid解放
+                    shared_state["closing_pids"].discard(pid)
+
+            except KeyError as e:
+                logging.warning(f"[FAST] position missing key: {e} pos={pos}")
+                continue
+            except Exception as e:
+                logging.exception(f"[FAST] loop exception: {e}")
+                continue
+
+        await asyncio.sleep(interval_sec)
+
+# == 損益即時監視用タスク (旧型)==
+# async def monitor_positions_fast(shared_state, stop_event, interval_sec=0.2):
+#     SLIPPAGE_BUFFER = 5  # 許容スリッページ（円）
+#     while not stop_event.is_set():
+#         positions = get_positions()
+#         prices = get_price()
+#         if prices is None:
+#             await asyncio.sleep(interval_sec)
+#             continue
+        
+#         if not positions:
+#             await asyncio.sleep(interval_sec)
+#             continue
+        
+#         ask = prices["ask"]
+#         bid = prices["bid"]
+
+#         for pos in positions:
+#             entry = float(pos["price"])
+#             pid = pos["positionId"]
+#             size_str = int(pos["size"])
+#             side = pos.get("side", "BUY").upper()
+#             close_side = "SELL" if side == "BUY" else "BUY"
+
+#             # スリッページバッファ込みで早めに判断
+#             prices = get_price()
+#             bid = prices["bid"]
+#             ask = prices["ask"]
+
+#             #mid = (ask + bid) / 2
+
+#             spread = ask - bid
+            
+#             profit =  float(pos["lossGain"])
+                        
+#             # 即時損切判定
+#             if profit <= -MAX_LOSS + SLIPPAGE_BUFFER:
+#                 if spread > MAX_SPREAD:
+#                     notify_slack(f"[即時損切保留] 強制決済実行の条件に達したが、スプレッドが拡大中なのでスキップ\n 損切タイミングに注意")
+#                     continue
+#                 notify_slack(f"[即時損切] 損失が {profit} 円（許容: -{MAX_LOSS}円 ±{SLIPPAGE_BUFFER}）→ 強制決済実行")
+                
+#                 start = time.time()
+#                 close_order(pid, size_str, close_side)
+#                 end = time.time()
+#                 record_result_block(profit, shared_state)
+#                 record_result(profit, shared_state)
+#                 write_log("LOSS_CUT_FAST", bid)
+#                 if shared_state.get("firsts")==True:
+#                     shared_state["cooldown_untils"] = time.time() + MAX_Stop
+#                     shared_state["firsts"] = False
+#                 # 遅延ログも記録
+#                 elapsed = end - start
+#                 if elapsed > 0.5:
+#                     logging.warning(f"[遅延警告] 決済リクエストに {elapsed:.2f} 秒かかりました")
+
+#                 shared_state["trend"] = None
+#                 shared_state["last_trend"] = None
+#                 shared_state["entry_time"] = time.time()
+                
+#         await asyncio.sleep(interval_sec)
+
+from load_xml import load_config_from_xml
+
+# 設定読み込み
+import os
+api_settings = load_apifile_conf()
+if os.path.exists("bot_config.xml"):
+    config = load_config_from_xml("bot_config.xml")
+    load_config_status="設定ソース:xml"
+else:
+# === 設定読み込み ===
+    config = load_config_from_mysql()
+    load_config_status = "設定ソース:Mysql"
+
+    
+# グローバル変数に設定値を適用
+SYMBOL = config["SYMBOL"]
+LOT_SIZE = config["LOT_SIZE"]
+MAX_SPREAD = config["MAX_SPREAD"]
+MAX_LOSS = config["MAX_LOSS"]
+MIN_PROFIT = config["MIN_PROFIT"]
+CHECK_INTERVAL = config["CHECK_INTERVAL"]
+MAINTENANCE_MARGIN_RATIO = config["MAINTENANCE_MARGIN_RATIO"]
+VOL_THRESHOLD = config["VOL_THRESHOLD"]
+TIME_STOP = config["TIME_STOP"]
+MACD_DIFF_THRESHOLD =config["MACD_DIFF_THRESHOLD"]
+SKIP_MODE = config["SKIP_MODE"] # 差分が小さい場合にスキップするかどうか、スキップする場合はTrue
+USD_TIME = config["USD_TIME"]
+MAX_Stop = config["MAX_Stop"]
+LOSS_STOP= config["LOSS_STOP"] 
+YDAY_STOP= config["YDAY_UP_STOP"]
+
+# 夜間判定関数
+def is_night_time():
+    now = datetime.now().hour
+    return (16 <= now <= 23) or (0 <= now <= 2)
+
+# 高ボラティリティ判定関数
+def is_high_volatility(prices, threshold=VOL_THRESHOLD):
+    # deque, list, tuple のいずれかか確認
+    if not isinstance(prices, (list, tuple, deque)) or len(prices) < 2:
+        return False
+
+    # dequeの場合はリストに変換
+    if isinstance(prices, deque):
+        prices = list(prices)
+
+    try:
+        return statistics.stdev(prices[-5:]) > threshold
+    except statistics.StatisticsError:
+        return False
+
+def is_low_volatility_legacy(prices):
+    # 既存 high 判定を反転して low 判定にする（既存関数はそのまま）
+    return not is_high_volatility(prices, threshold=0.0030)
+
+# ボラティリティに応じたMAX_LOSS調整関数
+import copy
+Buffer = copy.copy(MAX_LOSS)
+_PREV_MAX_LOSS = None
+
+# ボラティリティに応じたMAX_LOSS調整関数
+def adjust_max_loss(prices,
+                    base_loss=50,
+                    vol_thresholds=(0.005, 0.01),
+                    adjustments=(-5, 10),
+                    period=5):
+    """
+    ボラティリティに応じて MAX_LOSS を調整してグローバルに設定
+    前回と値が変わったときのみログ・Slack通知
+    """
+    global MAX_LOSS, _PREV_MAX_LOSS
+
+    if len(prices) < period:
+        MAX_LOSS = base_loss
+        if MAX_LOSS != _PREV_MAX_LOSS:
+            msg = f"[INFO] データ不足のため MAX_LOSS = {MAX_LOSS}円"
+            logging.info(msg)
+            notify_slack(msg)
+            _PREV_MAX_LOSS = MAX_LOSS
+        return
+
+    vol = statistics.stdev(list(prices)[-period:])
+
+    if vol > vol_thresholds[1]:
+        new_max_loss = base_loss + adjustments[1]
+    elif vol > vol_thresholds[0]:
+        new_max_loss = base_loss + adjustments[0]
+    else:
+        new_max_loss = Buffer
+
+    MAX_LOSS = new_max_loss
+
+    # 値が変わったときだけ通知
+    if MAX_LOSS != _PREV_MAX_LOSS:
+        msg = f"[INFO] ボラ={vol:.4f}, MAX_LOSS を更新: {MAX_LOSS}円"
+        logging.info(msg)
+        notify_slack(msg)
+        _PREV_MAX_LOSS = MAX_LOSS
+
+import asyncio
+
+# SIGTERMハンドラ
+def handle_exit(signum, frame):
+    print("SIGTERM 受信 → 状態保存")
+    save_state(shared_state)
+    save_price_buffer(price_buffer)  
+    sys.exit(0)
+
+# === 環境変数の読み込み ===
+conf=load_settings_from_db()
+try:
+    URL_Auth = conf["URL"]
+except:
+    URL_Auth=""
+
+if api_settings=="file":
+    if os.path.exists("api_settings.db"):
+        api_data,secret_data = load_api_settings_sqlite("api_settings.db")
+        Data_source = "APIデータソース:ローカルファイル"
+else:
+    import conf_load
+    settings = conf_load.load_settings_from_db()
+    Data_source="APIデータソース:データベース"
+    api_data = settings.get("API_KEY")
+    secret_data = settings.get("API_SECRET")
+
+save_dir = temp_dir +"/System_Status.txt"
+with open(save_dir, "w", encoding="utf-8") as f:
+    f.write(load_config_status)
+    f.write("\n")
+    f. write(Data_source)
+
+# APIキーとシークレットキーの設定
+API_KEY = api_data.strip()
+API_SECRET = secret_data.strip()
+BASE_URL_FX = "https://forex-api.coin.z.com/private"
+FOREX_PUBLIC_API = "https://forex-api.coin.z.com/public"
+
+today_pnl = 0
+yesterday = (datetime.now(JST) - timedelta(days=1)).date()
+
+if api_settings == "file":
+    total,a = sum_yesterday_realized_pnl_at_midnight(api_key=API_KEY,secret_key=API_SECRET,symbol=SYMBOL,target_date=yesterday)
+    notify_slack(f"昨日の総損益は {total} 円です")
+    today_pnl = total
+else:
+    total = get_today_pnl(default=Decimal("0"))
+    pnl_int = int(total)
+    notify_slack(f"昨日の総損益は {pnl_int} 円です")
+    today_pnl = total
+
+import asyncio
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+from decimal import Decimal
+from typing import Callable, Dict, Any, Tuple
+
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+from decimal import Decimal
+
+# JST = ZoneInfo("Asia/Tokyo")
+
+def profit_lock_check(api_key, secret_key, symbol, n_yen):
+    now = datetime.now(JST)
+    today = now.date()
+    yesterday = (now - timedelta(days=1)).date()
+
+    today_pnl, _ = sum_yesterday_realized_pnl_at_midnight(api_key, secret_key, symbol, target_date=today, close_only=True)
+    y_pnl, _     = sum_yesterday_realized_pnl_at_midnight(api_key, secret_key, symbol, target_date=yesterday, close_only=True)
+
+    return today_pnl >= (y_pnl + Decimal(n_yen)) and (today_pnl>=0)
+
+def loss_lock_check(api_key, secret_key, symbol, n_yen):
+    now = datetime.now(JST)
+    today = now.date()
+    yesterday = (now - timedelta(days=1)).date()
+
+    today_pnl, _ = sum_yesterday_realized_pnl_at_midnight(
+        api_key, secret_key, symbol, target_date=today, close_only=True
+    )
+    y_pnl, _ = sum_yesterday_realized_pnl_at_midnight(
+        api_key, secret_key, symbol, target_date=yesterday, close_only=True
+    )
+
+    # 昨日比で -n円以上悪化したら True（= 日次負け停止）
+    return today_pnl <= -Decimal(n_yen)
+
+
+# === 取引余力確認と初期残高保存 ===
+out = assets(API_KEY,API_SECRET)
+try:
+    available_amounts = out['data']['availableAmount']
+    available_amount = int(float(out['data']['availableAmount']))
+    notify_slack(f"現在の取引余力は{available_amount}円です。")
+    if available_amount==0 or available_amount==None:
+        notify_slack("警告: 取引余力がありません。\nシステムを停止するか、資金を追加してください")
+except:
+    pass
+
+# 初期残高ファイルがなければ作成
+if os.path.isfile("pricesData.txt") == False and now.hour>=1:
+    with open("pricesData.txt", "w", encoding="utf-8") as f:
+        f.write(available_amounts)
+else:
+    with open("pricesData.txt", "r", encoding="utf-8") as f:
+        saved_available_amounts = f.read().strip()
+        try:
+            saved_available_amount = float(saved_available_amounts)
+        except ValueError:
+            logging.error("基準初期残高読み込み時にエラー")
+            saved_available_amount = out['data']['availableAmount']
+
+# == 当日決算損益記録関数 ==
+from AddData import insert_data
+def last_balance():
+    SECRET_KEYs = os.getenv("SECRET_PASSWORD").encode()
+    global available_amounts
+    if os.path.isfile("pricesData.txt") == True:
+        with open("pricesData.txt", "r", encoding="utf-8") as f:
+            saved_available_amounts = f.read().strip()
+            try:
+                saved_available_amount = float(saved_available_amounts)
+            except ValueError:
+                logging.error("基準初期残高読み込み時にエラー")
+                saved_available_amount = out['data']['availableAmount']
+    else:
+        saved_available_amount = out['data']['availableAmount']
+    
+    out = assets(API_KEY,API_SECRET)
+    last = str(get_positionLossGain(API_KEY,API_SECRET))
+    sign1 = hmac.new(SECRET_KEYs, str(last).encode(), hashlib.sha256).hexdigest()
+    notify_slack(f"[当日決算損益] 当日決算損益は{last}円です。")
+    available_amounts = out['data']['availableAmount'] # 定数を更新
+    result = insert_data(
+        table="Same-day-profit",
+        columns=["Profit", "sign"],
+        values=(str(last), sign1)
+    )
+    if result:
+        logging.info("データ挿入成功")
+    else:
+        logging.error("データ挿入失敗")
+        with open("Error.log", "w", encoding="utf-8") as f:
+            f.write(available_amounts)
+
+    with open("pricesData.txt", "w", encoding="utf-8") as f:
+        f.write(available_amounts)
+    return
+
+import os
+import requests
+import subprocess
+import sys
+
+# パラメータ設定
+PUBLIC_KEY_URL = URL_Auth + "publickey.asc"
+PUBLIC_KEY_FILE = "/opt/gpg/publickey.asc"
+UPDATE_FILE = "AutoTrade.py"
+SIGNATURE_FILE = "AutoTrade.py.sig"
+
+# 公開鍵ダウンロード関数
+def download_public_key(url, save_path):
+    """公開鍵をダウンロードして保存"""
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        with open(save_path, 'wb') as f:
+            f.write(response.content)
+        # print("公開鍵をダウンロードしました")
+    except Exception as e:
+        notify_slack(f"公開鍵ダウンロード失敗: {str(e)}")
+        sys.exit(1)
+
+# 公開鍵インポート関数
+def import_public_key(gpg_home, key_path):
+    """公開鍵をGPGにインポート"""
+    try:
+        subprocess.run(['gpg', '--homedir', gpg_home, '--import', key_path], check=True,stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except subprocess.CalledProcessError:
+        notify_slack("公開鍵インポート失敗")
+        sys.exit(1)
+
+# 署名検証関数
+def verify_signature(gpg_home, signature_file, update_file):
+    """署名検証"""
+    result = subprocess.run(
+        ['gpg', '--homedir', gpg_home, '--verify', signature_file, update_file],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
+    if result.returncode != 0:
+        notify_slack(f"署名検証失敗！起動中止:{update_file}")
+        print(result.stdout)
+        print(result.stderr)
+        sys.exit(1)
+
+# 取引余力通知関数
+def notify_asset():
+    out=assets(API_KEY,API_SECRET)
+    available_amount = int(float(out['data']['availableAmount']))
+    balance = int(float(out['data']['balance']))
+
+    notify_slack(f"現在の取引余力は{available_amount}円です。\n 現在の現金残高は{balance}円です。")
+    return 0
+
+# EncryptSecureDECの署名検証
+public_key_path = os.path.join(key_box, "publickey.asc")
+download_public_key(PUBLIC_KEY_URL, public_key_path)
+import_public_key(key_box, public_key_path)
+
+# === トレンド判定関数 ===
+signal.signal(signal.SIGTERM, handle_exit)
+
+# === 営業状態チェック ===
+def is_market_open():
+    try:
+        response = requests.get(f"{FOREX_PUBLIC_API}/v1/status")
+        response.raise_for_status()
+        status = response.json().get("data", {}).get("status")
+        if status == False:
+            logging.warning("[市場] 指標情報が未定義状態です。\nシステムエラーに注意してください")
+            status="UNDEFINED"
+        return status
+    except Exception as e:
+        logging.error(f"[市場] 状態取得失敗: {e}")
+        return False
+
+# === 現在価格取得 ===
+def get_price():
+    marcket_status = is_market_open()
+    if marcket_status != "OPEN" and marcket_status != "UNDEFINED":
+        return None
+    try:
+        res = requests.get(f"{FOREX_PUBLIC_API}/v1/ticker")
+        res.raise_for_status()
+        data = res.json().get("data", [])
+        for item in data:
+            if item.get("symbol") == SYMBOL:
+                return {"ask": float(item["ask"]), "bid": float(item["bid"])}
+        logging.error(f"[価格] 指定シンボル {SYMBOL} が見つかりません")
+        return None
+    except Exception as e:
+        logging.error(f"[価格] 取得失敗: {e}")
+        return None
+
+# === RSIを計算 ===
+def calculate_rsi(prices, period=14):
+    if len(prices) < period + 1:
+        return None
+    prices_series = pd.Series(prices)
+    delta = prices_series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+
+    avg_gain = gain.rolling(window=period).mean()
+    avg_loss = loss.rolling(window=period).mean()
+
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi.iloc[-1]
+
+# === ADXを計算 ===
+def calculate_adx(highs, lows, closes, period=14):
+    if len(highs) < period + 2:
+        return None
+
+    highs = pd.Series(highs)
+    lows = pd.Series(lows)
+    closes = pd.Series(closes)
+
+    plus_dm = highs.diff()
+    minus_dm = lows.diff()
+
+    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
+    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
+
+    tr1 = highs - lows
+    tr2 = (highs - closes.shift()).abs()
+    tr3 = (lows - closes.shift()).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+    atr = tr.rolling(window=period).mean()
+    plus_di = 100 * (plus_dm.rolling(window=period).mean() / atr)
+    minus_di = 100 * (minus_dm.rolling(window=period).mean() / atr)
+
+    # ✅ 分母がゼロのとき小さな値に置き換える
+    denominator = plus_di + minus_di
+    denominator = denominator.replace(0, 1e-10)
+
+    dx = (abs(plus_di - minus_di) / denominator) * 100
+    adx = dx.rolling(window=period).mean()
+    
+    result = adx.iloc[-1]
+    return None if pd.isna(result) else result
+
+macd_valid = False
+
+# === 署名作成 ===
+def create_signature(timestamp, method, path, body=""):
+    message = timestamp + method + path + body
+    return hmac.new(API_SECRET.encode(), message.encode(), hashlib.sha256).hexdigest()
+
+# === 建玉取得 ===
+def get_positions():
+    path = "/v1/openPositions"
+    method = "GET"
+    timestamp = str(int(time.time() * 1000))
+    sign = create_signature(timestamp, method, path)
+
+    headers = {
+        "API-KEY": API_KEY,
+        "API-TIMESTAMP": timestamp,
+        "API-SIGN": sign,
+    }
+
+    try:
+        res = requests.get(BASE_URL_FX + path, headers=headers)
+        res.raise_for_status()
+        data = res.json().get("data", {})
+
+        positions = data.get("list", [])
+        if not isinstance(positions, list):
+            logging.warning(f"[建玉] list が見つからない: {data}")
+            return []
+
+        return [p for p in positions if p.get("symbol") == SYMBOL]
+    except Exception as e:
+        logging.error(f"[建玉] 取得失敗: {e}")
+        return []
+
+# === 証拠金維持率取得 ===
+def get_margin_status(shared_state):
+    path = "/v1/account/assets"
+    method = "GET"
+    timestamp = str(int(time.time() * 1000))
+    sign = create_signature(timestamp, method, path)
+
+    headers = {
+        "API-KEY": API_KEY,
+        "API-TIMESTAMP": timestamp,
+        "API-SIGN": sign
+    }
+
+    try:
+        res = requests.get(BASE_URL_FX + path, headers=headers)
+        res.raise_for_status()
+        data = res.json().get("data", {})
+        ratio_raw = data.get("marginRatio")
+
+        if ratio_raw is None or ratio_raw == 0 or float(ratio_raw) > 1e6:
+            if shared_state.get("last_margin_notify") != "none":
+                notify_slack("[証拠金維持率] ポジションが存在しないため未算出です。※現在0またはNone")
+                shared_state["last_margin_notify"] = "none"
+            return
+
+        ratio = float(ratio_raw)
+
+        # 差分が大きい時だけ通知
+        last_ratio = shared_state.get("last_margin_ratio")
+        if last_ratio is None or abs(ratio - last_ratio) > 1.0:
+            notify_slack(f"[証拠金維持率] {ratio:.2f}%")
+            shared_state["last_margin_ratio"] = ratio
+            shared_state["last_margin_notify"] = "ok"
+
+        # 危険水準通知も重複制御
+        if ratio < MAINTENANCE_MARGIN_RATIO * 100:
+            if shared_state.get("margin_alert_sent") != True:
+                notify_slack("[⚠️アラート] 証拠金維持率が危険水準")
+                shared_state["margin_alert_sent"] = True
+        else:
+            shared_state["margin_alert_sent"] = False
+
+    except Exception as e:
+        notify_slack(f"[証拠金] 取得失敗: {e}")
+
+# === レスポンスから価格抽出 ===
+def fee_test(trend):
+    """ 
+    手数料から約定金額を算出するコード
+    trend: "BUY" または "SELL"
+    """
+    price_data = get_price()
+    if not price_data:
+        logging.error("価格データが取得できませんでした")
+        return
+    if trend == "BUY":
+        price = price_data["ask"]  # 買い注文は ask で約定
+    elif trend == "SELL":
+        price = price_data["bid"]  # 売り注文は bid で約定
+    else:
+        logging.error(f"無効なトレンド指定: {trend}")
+        return
+    amount = 1.0 * 10000 * price  # 0.1lot = 1000通貨、1lot = 10000通貨
+    fee = amount * 0.00002  # 0.002%
+    logging.info(f"想定手数料: {fee:.3f} 円 (ロット: {LOT_SIZE}, レート: {price}, 約定金額: {amount:.2f})")
+        
+# === 注文発行 ===
+def open_order(side="BUY"):
+    path = "/v1/order"
+    method = "POST"
+    timestamp = str(int(time.time() * 1000))  # より正確なミリ秒
+
+    body_dict = {
+        "symbol": SYMBOL,
+        "side": side,
+        "executionType": "MARKET",
+        "size": str(LOT_SIZE),
+        "symbolType": "FOREX"
+    }
+
+    body = json.dumps(body_dict, separators=(',', ':'))
+    sign = create_signature(timestamp, method, path, body)
+
+    headers = {
+        "API-KEY": API_KEY,
+        "API-TIMESTAMP": timestamp,
+        "API-SIGN": sign,
+        "Content-Type": "application/json"
+    }
+
+    try:
+        start = time.time()
+        res = session.post(BASE_URL_FX + path, headers=headers, data=body,timeout=3)
+        end = time.time()
+        price = extract_price_from_response(res)
+        elapsed = end - start
+        data = res.json()
+
+        # 成功・失敗判定と詳細通知
+        if res.status_code == 200 and "data" in data:
+            #price = data["data"].get("price", "取得不可")
+            notify_slack(f"[注文] 新規建て成功 {side}")
+            fee_test(side)
+            shared_state["oders_error"]=False
+        else:
+            notify_slack(f"[注文] 新規建て応答異常: {res.status_code} {data}")
+            shared_state["oders_error"]=True
+        # 遅延が0.5秒超えたら警告
+        if elapsed > 0.5:
+            logging.warning(f"[遅延警告] 新規注文に {elapsed:.2f} 秒かかりました")
+
+        return data
+    except requests.exceptions.Timeout:
+        notify_slack("[注文] タイムアウト（3秒）")
+        logging.warning("[タイムアウト] 新規注文が3秒を超えました")
+        return None
+    except Exception as e:
+        notify_slack(f"[注文] 新規建て失敗: {e}")
+        return None
+
+from ENVJson import is_stopped_today,mark_stop_today
+stopped, reason = is_stopped_today()
+if stopped:
+    notify_slack("[初期起動停止] 当日の損益ロックにより、新規注文を停止した状態で起動します")
+    STOP_ENV = reason
+
+rootOrderIds = None
+# === ポジション決済 ===
+def close_order(position_id, size, side):
+    global rootOrderIds
+    global STOP_ENV
+    path = "/v1/closeOrder"
+    method = "POST"
+    timestamp = str(int(time.time() * 1000))  # より精度の高いミリ秒
+
+    body_dict = {
+        "symbol": SYMBOL,
+        "side": side,
+        "executionType": "MARKET",
+        "settlePosition": [
+            {
+                "positionId": position_id,
+                "size": str(size)
+            }
+        ]
+    }
+
+    body = json.dumps(body_dict, separators=(',', ':'))
+    sign = create_signature(timestamp, method, path, body)
+
+    headers = {
+        "API-KEY": API_KEY,
+        "API-TIMESTAMP": timestamp,
+        "API-SIGN": sign,
+        "Content-Type": "application/json"
+    }
+
+    try:
+        start = time.time()
+        res = session.post(BASE_URL_FX + path, headers=headers, data=body,timeout=3)
+        end = time.time()
+        price = extract_price_from_response(res)
+        elapsed = end - start
+        data = res.json()
+
+        # 成功応答かチェック
+        if res.status_code == 200 and "data" in data:
+            
+            notify_slack(f"[決済] 成功: {side}")
+            fee_test(side)
+            if rootOrderIds != None:
+                logging.info(f"ID {rootOrderIds}を決済")
+                write_info(rootOrderIds,temp_dir)
+            rootOrderIds = None
+            shared_state["oders_error"]=False
+        else:
+            notify_slack(f"[決済] 応答異常: {res.status_code} {data}")
+            shared_state["oders_error"]=True
+        # 遅延が長い場合ログ記録
+        if elapsed > 0.5:
+            logging.warning(f"[遅延警告] 決済APIに {elapsed:.2f} 秒かかりました")
+        
+        halt = profit_lock_check(API_KEY, API_SECRET, SYMBOL, YDAY_STOP)
+        loss = loss_lock_check(API_KEY, API_SECRET, SYMBOL, YDAY_STOP)
+        if loss == True:
+            notify_slack("[損失確定ロック] 当日の損失が前日を上回ったため、新規注文を停止します")
+            STOP_ENV = 2
+        elif halt == True:
+            notify_slack("[利益確定ロック] 当日の利益が前日を上回ったため、新規注文を停止します")
+            STOP_ENV = 1
+        if (STOP_ENV == 2 or STOP_ENV == 1):
+            mark_stop_today(STOP_ENV)
+        return data
+    except requests.exceptions.Timeout:
+        notify_slack("[注文] タイムアウト（3秒）")
+        logging.warning("[タイムアウト] 新規注文が3秒を超えました")
+        return None
+    except Exception as e:
+        notify_slack(f"[決済] 失敗: {e}")
+        return None
+
+# === 初回注文関数 ===
+def first_order(trend,shared_state=None):
+    global rootOrderIds
+    positions = get_positions()
+    prices = get_price()
+    if prices is None:
+        return 0
+    
+    bid = prices["bid"]
+    ask = prices["ask"]
+    spread = ask - bid
+    spread = round(spread, 6) 
+    logging.info(f"[発注時スプレッド] 現在のスプレッド={spread:.5f}")
+    
+    if spread > MAX_SPREAD:
+        notify_slack(f"[警告] スプレッドの差が許容範囲外なので取引中止")
+        return 3
+    if not positions:
+        if trend is None:
+           return 0
+        else:
+            notify_slack(f"[建玉] なし → 新規{trend}")
+            try:
+                data = open_order(trend)
+                if data and "data" in data and "rootOrderId" in data["data"]:
+                    rootOrderIds = data["data"][0].get("rootOrderId")
+                    if rootOrderIds != None:
+                        logging.info(f"ID {rootOrderIds}を注文")
+                        write_info(rootOrderIds,temp_dir)
+                else:
+                    rootOrderIds = None
+
+                shared_state["entry_time"] = time.time()
+                write_log(trend, ask)
+                return 1
+            except Exception as e:
+                notify_slack(f"[注文失敗] {e}")
+                return 0
+    else:
+        return 2
+
+values=0
+# === フェイルセーフ決済関数 ===
+def failSafe(values):
+    if values==1:
+        return 1
+    """もし終了前に建玉があった時用"""
+    positions = get_positions()
+    prices=get_price()
+    if positions:
+        for pos in positions:
+            entry = float(pos["price"])
+            pid = pos["positionId"]
+            size_str = int(pos["size"])
+            side = pos.get("side", "BUY").upper()
+            close_side = "SELL" if side == "BUY" else "BUY"
+            close_order(pid,size_str,close_side)
+            bid = prices["bid"]
+            write_log("Fail_Safe", bid)
+        return 1
+    else:
+        logging.info("強制決済建玉なし")
+        return 1
+    
+# === 直近2本のローソク足構築関数 ===
+def build_last_2_candles_from_prices(prices: list[float]) -> list[dict]:
+    """
+    price_buffer（1秒〜数秒おきの価格履歴）から直近2本のローソク足を構築
+    1分あたり20本程度の粒度と仮定
+    """
+    if len(prices) < 40:
+        return []
+
+    candles=[]
+    for i in range(2):
+        start = -40 + i*20
+        end = None if i == 1 else start + 20
+        slice = prices[start:end]
+        if not slice:
+            continue
+        candle = {
+            "open": slice[0],
+            "close": slice[-1],
+            "high": max(slice),
+            "low": min(slice),
+        }
+        candles.append(candle)
+
+    return candles
+
+#=== エントリー判定関数 ===
+async def process_entry(trend, shared_state, price_buffer,rsi_str,adx_str,candles):
+    shared_state["trend"] = trend
+    shared_state["trend_start_time"] = datetime.now()
+    notify_slack(f"[トレンド] MACDクロス{trend}（RSI={rsi_str}, ADX={adx_str}）")
+
+    if not candles or len(candles) < 2:
+        logging.info(candles)
+        logging.error("ローソク足データが不足しているためスキップ")
+        notify_slack("ローソク足データが不足しているためスキップ")
+        return
+    skip, reason = should_skip_entry(candles, trend)
+
+    if skip:
+        shared_state["trend"] = None
+        logging.info(f"[エントリースキップ] {reason}")
+        notify_slack(f"[スキップ] {reason}")
+        await asyncio.sleep(3)
+    else:
+        a = first_order(trend, shared_state)
+        if a == 2:
+            logging.info(f"[結果] {trend} すでにポジションあり")
+        elif a == 1:
+            logging.info(f"[結果] {trend}  取引 成功")
+            shared_state["last_trend"] = trend
+        else:
+            logging.error(f"[結果] {trend} 失敗")
+        logging.info(f"[エントリー判定] {trend} トレンド確定")
+
+# === 動的フィルタリング関数 ===
+def dynamic_filter(adx, rsi, bid, ask):
+    now = datetime.now()
+    hour = now.hour
+
+    # スプレッドの計算
+    spread = ask - bid
+    spread = round(spread, 6) 
+    # 時間帯によってしきい値を変更
+    if 9 <= hour < 15:
+        adx_threshold = 35
+        spread_threshold = 0.25
+    elif 15 <= hour < 22:
+        adx_threshold = 25
+        spread_threshold = 0.3
+    else:
+        adx_threshold = 20
+        spread_threshold = 0.35
+
+    # 各条件のチェック
+    if spread > spread_threshold:
+        logging.info(f"[スキップ] スプレッド過大: {spread:.3f} > {spread_threshold}")
+        return False
+
+    if adx < adx_threshold:
+        logging.info(f"[スキップ] ADX不足: {adx:.1f} < {adx_threshold}")
+        return False
+
+    if rsi <= 20 or rsi >= 80:
+        logging.info(f"[スキップ] RSI過熱/過冷: {rsi:.1f}")
+        return False
+
+    return True
+
+# === トレーリングストップ関数 ===
+def Traring_Stop(adx, max_profits):
+    if adx is not None:
+        if adx < 20:
+            TRAILING_STOP = 10
+        elif adx < 40:
+            TRAILING_STOP = 15
+        else:
+            TRAILING_STOP = 25
+    else:
+        TRAILING_STOP = 15
+            
+    positions = get_positions()
+    if not positions:
+        return
+
+    prices = get_price()
+    ask = prices["ask"]
+    bid = prices["bid"]
+
+    for pos in positions:
+        pid = pos["positionId"]
+        side = pos.get("side", "BUY").upper()
+        entry = float(pos["price"])
+        size = int(pos["size"])
+        elapsed = time.time() - shared_state.get("entry_time", time.time())
+
+        # 現在利益の計算（BUYはBID、SELLはASKで決済するのが正しい）
+        if side == "BUY":
+            profit = round((bid - entry) * LOT_SIZE, 2)
+        else:
+            profit = round((entry - ask) * LOT_SIZE, 2)
+
+        # ---- 利益確保型の最大利益更新ロジック ----
+        if pid not in max_profits:
+            # MIN_PROFIT到達で初期化（含み損では初期化しない）
+            if profit >= MIN_PROFIT:
+                max_profits[pid] = profit
+                logging.info(f"[トレール開始] 建玉{pid} 最大利益初期化: {profit}円")
+            else:
+                continue  # トレーリング開始前は何もしない
+        else:
+            # 最大利益を有利方向にだけ更新
+            if profit > max_profits[pid]:
+                max_profits[pid] = profit
+                logging.info(f"[トレール更新] 建玉{pid} 最大利益更新: {profit}円")
+
+        # ---- トレーリングストップ判定（利益確保）----
+        if profit <= max_profits[pid] - TRAILING_STOP:
+            notify_slack(f"[トレーリングストップ] 建玉{pid} 最大利益{max_profits[pid]}円 → 利益確保して決済")
+            close_order(pid, size, reverse_side(side))
+            record_result(profit, shared_state)
+            if pid in max_profits:
+                del max_profits[pid]
+
+# === メイン監視ループ ===
+first_start = True
+
+# 東京市場時間帯取引スキップ設定
+if USD_TIME == 1:
+    if now.hour >= 6 and now.hour <= 17:                   
+        logging.info(f"[時間制限] 東京市場のため取引スキップ")
+
+candle_buffer = []
+
+from news_block import load_news_blocks, is_blocked
+
+TODAY = datetime.now().date()
+NEWS_BLOCKS = load_news_blocks(TODAY)
+logging.info(f"[NEWS] loaded {len(NEWS_BLOCKS)} blocks for {TODAY}")
+
+def load_news(v):
+    global TODAY,NEWS_BLOCKS
+    if v==1:
+        return 1
+    TODAY = datetime.now().date()
+    NEWS_BLOCKS = load_news_blocks(TODAY)
+    logging.info(f"[NEWS] loaded {len(NEWS_BLOCKS)} blocks for {TODAY}")
+
+# 利益/損失ロック時の環境変数
+STOP_NOTICS = 0
+
+# === トレンド判定を拡張（RSI+ADX込み） ===
+async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec=3, shared_state=None):
+    import statistics
+    from collections import deque
+    from datetime import datetime
+    from datetime import date
+    import time
+    import logging
+    global STOP_NOTICS
+    global first_start
+    global candle_buffer
+    global price_buffer
+    global STOP_ENV
+    mcv = 0
+    global MAX_SPREAD
+    high_prices, low_prices, close_prices = load_price_history()
+    xstop = 0
+    trend = "未判定" # shared_state.get("trend",None)
+    global testmode
+    VOL_THRESHOLD_SHORT = 0.006
+    VOL_THRESHOLD_LONG = 0.008
+    import hashlib
+    last_notified = {}  # 建玉ごとの通知済みprofit記録
+    max_profits = {}    # 建玉ごとの最大利益記録
+    TRAILING_STOP = 15
+    global VOL_THRESHOLD
+    last_rsi_state = None
+    last_adx_state = None
+    
+    SPREAD = 0.005
+    RANGE_START = SPREAD * 1.6   # 0.08
+    RANGE_BLOCK = SPREAD * 1.2   # 0.06
+    
+    ADX_START   = 20
+    ADX_RELAX   = 18
+    n_nonce = 0
+    values = 0
+    vcount = 0
+    av = 0
+    sstop = 0
+    vstop = 0
+    nstop = 0
+    timestop = 0
+    m = 0
+    s = 0
+    count = 0
+    last = 0
+    n_nonce = 0
+    m_note = 0
+    nn_nonce = 0
+    while not stop_event.is_set():
+        positions = get_positions()    
+        today = datetime.now()
+        weekday_number = today.weekday()
+        status_market = is_market_open()
+        
+        if status_market != "OPEN"and status_market != "UNDEFINED":
+            if sstop == 0:
+                notify_slack(f"[市場] 市場が{status_market}中")
+                logging.info("[市場] 市場が閉場中")
+                sstop = 1
+            await asyncio.sleep(interval_sec)
+            if weekday_number == 6:
+                high_prices.clear()
+                low_prices.clear()
+                close_prices.clear()
+                shared_state["price_reset_done"] = True
+            continue
+        sstop = 0
+        in_cd, remaining = is_in_cooldown(shared_state)
+        if in_cd:
+            if not shared_state.get("notified_cooldown", False):
+                notify_slack(f"[クールダウン中] あと{remaining}秒 → エントリー判断を停止中")
+                logging.info(f"[クールダウン] 残り{remaining}秒")
+                shared_state["notified_cooldown"] = True
+            await asyncio.sleep(interval_sec)
+            continue
+        else:
+            shared_state["notified_cooldown"] = False
+        
+        prices = get_price()
+        now = datetime.now()
+        
+        if now.hour == 0 and now.minute == 0 and av == 0:
+            values = failSafe(values) #翌日になったら強制決済
+            load_news(av)
+            av = 1
+        else:
+            av = 0
+        
+        if value == 1 and now.weekday() == 4:
+            if m == 0:
+                notify_slack(f"[スキップ] 金曜日のため処理をスキップ")
+                m = 1
+            continue
+        else:
+            m = 0
+
+        if TIME_STOP != 0 and (now.hour < TIME_STOP or(now.hour == TIME_STOP and now.minute == 0)):
+            if m == 0:
+                param = {"symbol": SYMBOL}
+                yesterday = (datetime.now(JST) - timedelta(days=1)).date()
+                total,a = sum_yesterday_realized_pnl_at_midnight(api_key=API_KEY,secret_key=API_SECRET,symbol=SYMBOL,target_date=yesterday)
+                save_daily_summary(SYMBOL,total)
+                today = date.today()
+                
+                upsert_daily_pnl(today,total)
+                notify_slack(f" 取引抑止時刻になりました、取引を中断します。\n 本日の累計損益は{total}円です。")
+                values = failSafe(values)
+                m = 1
+                STOP_ENV = 0
+                STOP_NOTICS = 0
+            continue
+        else:
+            m = 0
+
+        if now.hour == 18 and now.minute == 30 and shared_state.get("price_reset_done") != True:
+            high_prices.clear()
+            low_prices.clear()
+            close_prices.clear()
+            
+            m = 0
+            shared_state["price_reset_done"] = True 
+        else:
+            shared_state["price_reset_done"] = False
+
+        if now.hour == 6:
+            if s == 0:
+                notify_asset()
+                s = 1
+            if s == 1 and now.hour !=6:
+                s = 0
+        
+        from datetime import datetime, timezone
+
+        now =  datetime.now()
+
+        if not prices:
+            logging.warning("[警告] 価格データの取得に失敗 → スキップ")
+            await asyncio.sleep(interval_sec)
+            continue
+
+        bid = prices["bid"]
+        ask = prices["ask"]
+        mid = (ask + bid) / 2
+
+        price_buffer.append(bid)
+        high_prices.append(ask)
+        low_prices.append(bid)
+        close_prices.append(mid)
+        
+        if len(price_buffer) != 240:
+            mcv = 0
+            logging.info(f"price_bufferの長さ: {len(price_buffer)}")
+        else:
+            if mcv == 0:
+                logging.info(f"price_bufferは十分な長さです")
+                mcv = 1
+        if len(high_prices) < 28 or len(low_prices) < 28 or len(close_prices) < 28:
+            logging.info(f"[待機中] ADX計算用に蓄積中: {len(close_prices)}/28")
+            await asyncio.sleep(interval_sec)
+            continue
+        
+        if len(price_buffer) < long_period:
+            if not shared_state.get("trend_init_notice"):
+                notify_slack("[MAトレンド判定] データ蓄積中 → 判定保留中")
+                logging.info("[初期化] データ蓄積中")
+                shared_state["trend_init_notice"] = True
+            await asyncio.sleep(interval_sec)
+            continue
+
+        now = datetime.now()
+        if  now.weekday() == 5 and now.hour >= 5 and vccm == 0:
+            values = failSafe(values) # 取引中に市場が止まる前に決済
+            vccm = 1
+        else:
+            vccm = 0
+
+        # === 時間制御による取引スキップ ===
+        if USD_TIME == 1:
+            if (now.hour > 6 or (now.hour == 6 and now.minute >= 0)) and (now.hour < 18 or (now.hour == 18 and now.minute < 30)):
+                if not shared_state.get("vstop_active", False):                   
+                    notify_slack(f"[クールダウン] 東京市場のため自動売買スキップ")
+                    logging.info(f"[時間制限] 東京市場のため取引スキップ")
+                    shared_state["vstop_active"] = True
+                    shared_state["forced_entry_date"] = False
+                    if len(high_prices) < 28 or len(low_prices) < 28 or len(close_prices) < 28:
+                        pass
+                    else:
+                        save_price_history(high_prices, low_prices, close_prices)
+                await asyncio.sleep(interval_sec)
+                continue
+            else:
+                shared_state["vstop_active"] = False
+        elif USD_TIME == 0:
+            if (18 <= now.hour < 24) or (0 <= now.hour < 2):
+                if not shared_state.get("vstop_active", False):                   
+                    notify_slack(f"[クールダウン] 欧州/NY市場のため自動売買スキップ")
+                    logging.info(f"[時間制限] 欧州/NY市場のため取引スキップ")
+                    shared_state["vstop_active"] = True
+                    shared_state["forced_entry_date"] = False
+                    if len(high_prices) < 28 or len(low_prices) < 28 or len(close_prices) < 28:
+                        pass
+                    else:
+                        save_price_history(high_prices, low_prices, close_prices)
+                await asyncio.sleep(interval_sec)
+                continue
+            else:
+                shared_state["vstop_active"] = False
+        else:
+            pass
+
+        spread = ask - bid
+        spread = round(spread, 6) 
+        if nstop == 0:
+            logging.info(f"[スプレッド] 現在のスプレッド={spread:.5f}")
+
+        if spread > MAX_SPREAD:
+            shared_state["trend"] = None
+            if nstop== 0:
+                notify_slack(f"[スプレッド超過] エントリーをスキップ")
+                logging.warning(f"[スキップ] スプレッドが広すぎるため判定中止（{spread:.5f} > {MAX_SPREAD:.5f}）")
+                nstop = 1
+            continue
+        else:
+            nstop = 0
+                          
+        if positions:
+            bid = prices["bid"]
+            ask = prices["ask"]
+            
+            spread = ask - bid
+            spread = round(spread, 6) 
+            if spread > MAX_SPREAD:
+                shared_state["trend"] = None
+                if nstop== 0:
+                    notify_slack(f"[スプレッド超過] 現在のスプレッド={spread:.5f} → 取引中にスプレッド拡大\n損切タイミングなどに影響の可能性あり")
+                    logging.warning(f"[スキップ] 取引中にスプレッド拡大損切タイミングなどに影響の可能性あり（{spread:.5f} > {MAX_SPREAD:.5f}）")
+                    nstop = 1
+                continue
+            else:
+                nstop = 0
+
+        short_ma = sum(list(price_buffer)[-short_period:]) / short_period
+        long_ma = sum(list(price_buffer)[-long_period:]) / long_period
+        
+        sma_cross_up = short_ma > long_ma and shared_state.get("last_short_ma", 0) <= shared_state.get("last_long_ma", 0)
+        sma_cross_down = short_ma < long_ma and shared_state.get("last_short_ma", 0) >= shared_state.get("last_long_ma", 0)
+        logging.info(f"price_bufferの長さ: {len(price_buffer)}")
+        logging.info(f"[INFO] SMA クロス SMA_UP = {sma_cross_up} SMA_DOWN = {sma_cross_down}")
+        shared_state["last_short_ma"] = short_ma
+        shared_state["last_long_ma"] = long_ma
+        
+        diff = short_ma - long_ma
+
+        try:
+            rsi = calculate_rsi(list(price_buffer), period=14)
+            adx = calculate_adx(high_prices, low_prices, close_prices, period=14)
+            rsi_str = f"{rsi:.2f}" if rsi is not None else "None"
+            adx_str = f"{adx:.2f}" if adx is not None else "None"
+            logging.info(f"[指標] RSI={rsi_str}, ADX={adx_str}")
+        except Exception as e:
+            rsi_str = str(rsi) if 'rsi' in locals() else "未定義"
+            adx_str = str(adx) if 'adx' in locals() else "未定義"
+            notify_slack(f"[エラー] RSI/ADX計算中に例外: {e}（RSI={rsi_str}, ADX={adx_str}）")
+            logging.exception("RSI/ADX計算中に例外が発生")
+            await asyncio.sleep(interval_sec)
+            continue
+
+        if rsi is None or adx is None:
+            if vstop==0:
+               shared_state["trend"] = None
+               notify_slack("[注意] RSIまたはADXが未計算のため判定スキップ中")
+               logging.warning("[スキップ] RSI/ADXがNone")
+               vstop = 1
+               await asyncio.sleep(interval_sec)
+               continue
+        else:
+            shared_state["RSI"] = rsi
+            vstop = 0
+
+        if len(close_prices) < 14:
+            logging.info(f"[情報] ADX計算に必要なデータ不足 ({len(close_prices)}/14)")
+            if not shared_state.get("adx_wait_notice", False):
+                notify_slack("[待機中] ADX計算に必要なデータが不足 → 判定スキップ中")
+                shared_state["adx_wait_notice"] = True
+                await asyncio.sleep(interval_sec)
+            continue
+        else:
+            shared_state["adx_wait_notice"] = False
+            
+        macd, signal = calc_macd(close_prices)
+        if len(macd) < 2 or len(signal) < 2:
+            notify_slack("[注意] MACDが未計算のため判定スキップ中")
+            logging.warning("[スキップ] MACD未計算")
+            await asyncio.sleep(interval_sec)
+            continue
+        
+        macd_cross_up = macd[-2] <= signal[-2] and macd[-1] > signal[-1]
+        macd_cross_down = macd[-2] >= signal[-2] and macd[-1] < signal[-1]
+
+        macd_bullish = macd[-1] > signal[-1]  # クロスしてる or 継続中    
+        macd_bearish = macd[-1] < signal[-1]  # デッドクロスまたは継続中
+        
+        try:
+            Traring_Stop(adx,max_profits)
+        except Exception as e:
+            notify_slack("トレーリングストップでエラー")
+            with open("Error.log", "w", encoding="utf-8") as f:
+                f.write(str(e))
+    
+        macd_str = f"{macd[-1]:.5f}" if macd[-1] is not None else "None"
+        signal_str = f"{signal[-1]:.5f}" if signal[-1] is not None else "None"
+
+        rsi_limit = (trend == "BUY" and rsi < 70) or (trend == "SELL" and rsi > 30)
+        logging.info(f"[MACD] クロス判定: UP={macd_cross_up}, DOWN={macd_cross_down}")
+        logging.info(f"[判定詳細] trend候補={trend}, diff={diff:.5f}, stdev={statistics.stdev(list(price_buffer)[-5:]):.5f}")
+        
+        candles = build_last_2_candles_from_prices(list(price_buffer))
+        logging.info(f"[INFO] キャンドルデータ2本分 {candles}")
+        range_value = calculate_range(price_buffer, period=10)
+        if range_value is not None:
+            logging.info(f"[INFO] 直近10本の価格レンジ: {range_value:.5f}")
+        
+        if load_conf_FILTER()==1: # 動的フィルタリング有効
+                if is_sideways_sma(close_prices):
+                    if n_nonce == 0:
+                        # trend = None
+                        # shared_state["trend"] = None
+                        logging.info("[横ばい判定:SMA] SMAが収束しているためスキップ")
+                        await asyncio.sleep(interval_sec)
+                        n_nonce = 1
+                    continue
+                else:
+                    n_nonce = 0
+                    
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        if adx >= 95:
+            # 無効化（非常事態）
+            shared_state["trend"] = None
+            notify_slack(f"[警告] ADXが100に近いためスキップ")
+            logging.warning("[スキップ] ADX異常値 → 判定中止")
+            continue
+        
+        n_nonce = 0
+        if rsi < 20:
+            notify_slack(f"[RSI下限] RSI 警戒でスキップ")
+            logging.info("[スキップ] RSI下限で警戒")
+            await asyncio.sleep(interval_sec)
+            continue
+
+        short_stdev = statistics.stdev(list(price_buffer)[-5:])
+        long_stdev = statistics.stdev(list(price_buffer)[-20:])
+
+        now = datetime.now()
+        
+        if len(price_buffer) < 180:
+            if count == 0:
+                count = 1            
+                notify_slack(f"[スキップ]price_bufferデータが許容値に未達 {count}")
+                # vcount = count
+            continue
+        else:
+            count = 0
+        nows = datetime.now()
+        if SKIP_MODE == 0:
+            blocked, start, end, currency, importance = is_blocked(nows, NEWS_BLOCKS)
+            if blocked:
+                # ニュースブロックスキップ
+                logging.info(f"[NEWS BLOCK] {currency} ★{importance} {start.strftime('%H:%M')} - {end.strftime('%H:%M')}")
+                continue
+        else:
+            logging.info(f"[NEWS BLOCK] 指標ブロック無効化モード (テストモード有効化)")
+            testmode = 1
+
+        # 初動検出
+        is_initial, direction = is_trend_initial(candles) # 初動検出関数の呼び出し
+        if (direction=="BUY" or direction=="SELL"):
+            trend = direction
+        if STOP_ENV == 1:
+            if STOP_NOTICS == 0:
+                notify_slack(f"[停止] 利益確定ロック中のため新規注文停止")
+                logging.info(f"[停止] 利益確定ロック中のため新規注文停止")
+                STOP_NOTICS = 1
+            continue
+        if STOP_ENV == 2:
+            if STOP_NOTICS == 0:
+                notify_slack(f"[停止] 損失確定ロック中のため新規注文停止")
+                logging.info(f"[停止] 損失確定ロック中のため新規注文停止")
+                STOP_NOTICS = 1
+            continue
+        if is_initial:
+            # 簡易フィルター
+            positions = get_positions()
+            if not positions:
+        
+                # BUY or SELL によって RSI のしきい値を設定
+                rsi_ok = True
+                if direction == "BUY" and rsi >= 70:
+                    rsi_ok = False
+                if direction == "SELL" and rsi <= 30:
+                    rsi_ok = False
+                if direction =="BUY":
+                    if not can_buy(close_prices):
+                        logging.info("BUY一致せずスキップ")
+                        continue
+                elif direction=="SELL":
+                    if not can_sell(close_prices):
+                        logging.info("SELL一致せずスキップ")
+                        continue
+                # ボラリティフィルター
+                if is_low_volatility_legacy(close_prices):
+                    msg = f"[スキップ] {direction} ボラリティ低のためエントリースキップ"
+                    logging.info(msg)
+                    notify_slack(msg)
+                    continue
+
+                # エントリー条件判定
+                if spread < MAX_SPREAD and adx >= 20 and rsi_ok:
+                    logging.info(f"初動検出、方向: {direction} → エントリー")
+                    notify_slack(f"初動検出、方向: {direction} → エントリー")
+                    if testmode == 1:                        
+                        notify_slack(f"テストモードのため、エントリースキップ")# ログ出力のみ
+                        continue
+                    first_order(direction, shared_state)
+                    trend = direction
+                    direction = None
+                    is_initial = None
+                    shared_state["trend"] = None
+                    shared_state["cooldown_untils"] = time.time() + MAX_Stop
+                    shared_state["firsts"] = True
+                    values=0
+                else:
+                    logging.info(f"初動だが条件未達 → 見送り (spread={spread}, adx={adx}, rsi={rsi})")
+            else:
+                logging.info(f"建玉あり → エントリーせず")
+        else:
+            pass
+
+        if short_stdev > VOL_THRESHOLD_SHORT and long_stdev > VOL_THRESHOLD_LONG:
+            
+            trend = "BUY" if diff > 0 else "SELL"
+            if adx < 20:
+                notify_slack(f"[スキップ] ADXが低いためトレンド弱くスキップ（ADX={adx:.2f}）")
+                shared_state["trend"] = None
+                await asyncio.sleep(interval_sec)
+                continue
+            now = datetime.now()
+            trend_active = False
+            if is_volatile(close_prices, candles):
+                notify_slack("[フィルター] 乱高下中につき判定スキップ")
+                continue  # トレンド判定処理を一時スキップ
+            
+            # ここにDMI判定を追加する
+            plus_di, minus_di = calculate_dmi(high_prices, low_prices, close_prices)
+            current_plus_di = plus_di[-1]
+            current_minus_di = minus_di[-1]
+
+            # DMI方向一致判定
+            dmi_trend_match = False
+            if trend == "BUY" and current_plus_di > current_minus_di:
+                dmi_trend_match = True
+            elif trend == "SELL" and current_minus_di > current_plus_di:
+                dmi_trend_match = True
+                      
+            logging.info(f"[INFO] DMI TREND {dmi_trend_match}")
+                    
+        logging.info(f"[判定条件] trend={trend}, macd_cross_up={macd_cross_up}, macd_cross_down={macd_cross_down}, RSI={rsi:.2f}, ADX={adx:.2f}")
+        
+        await asyncio.sleep(interval_sec)
+
+# == 即時利確監視用タスク ==
+async def monitor_quick_profit(shared_state, stop_event, interval_sec=1):
+    global MAX_Stop
+    PROFIT_BUFFER = 5  # 利確ラインに対する安全マージン
+    SLIPPAGE_BUFFER = 5  # 許容スリッページ（円）
+    while not stop_event.is_set():
+        positions = get_positions()
+        prices = get_price()
+        if prices is None:
+            await asyncio.sleep(interval_sec)
+            continue
+
+        ask = prices["ask"]
+        bid = prices["bid"]
+
+        # 即時利確判定ループ
+        for pos in positions:
+            entry = float(pos["price"])
+            pid = pos["positionId"]
+            size_str = int(pos["size"])
+            side = pos.get("side", "BUY").upper()
+            close_side = "SELL" if side == "BUY" else "BUY"
+
+            ask = Decimal(str(ask))
+            entry = Decimal(str(entry))
+            bid = Decimal(str(bid))
+
+            # 利益計算
+            raw_profit = (ask - entry if side == "BUY" else entry - bid) * LOT_SIZE
+            profit = raw_profit.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+            entry_time = shared_state.get("entry_time")
+            if entry_time is None:
+                continue
+            elapsed = time.time() - entry_time
+
+            # 利確ライン（スリッページ考慮）
+            short_term_target = 10 + PROFIT_BUFFER
+            long_term_target = 30 + PROFIT_BUFFER
+            bid = prices["bid"]
+            ask = prices["ask"]
+
+            spread = ask - bid
+            spread = round(spread, 6) 
+            if profit <= (-MAX_LOSS + SLIPPAGE_BUFFER):
+                if spread > MAX_SPREAD:
+                    notify_slack(f"[即時利確保留] 強制決済実行の条件に達したが、スプレッドが拡大中なのでスキップ\n 損切/利確タイミングに注意")
+                    continue
+            if (elapsed <= 60 and profit >= short_term_target) or (elapsed > 60 and profit >= long_term_target):
+                notify_slack(f"[即時利確] 利益が {profit} 円（{elapsed:.1f}秒保持）→ 決済実行")
+
+                start = time.time()
+                close_order(pid, size_str, close_side)
+                end = time.time()
+
+                record_result(profit, shared_state)
+                write_log("QUICK_PROFIT", bid)
+                if shared_state.get("firsts")==True:
+                    shared_state["cooldown_untils"] = time.time() + MAX_Stop
+                    shared_state["firsts"] = False
+                elapsed_api = end - start
+                if elapsed_api > 0.5:
+                    logging.warning(f"[遅延警告] 利確リクエストに {elapsed_api:.2f} 秒かかりました")
+
+                shared_state["trend"] = None
+                shared_state["last_trend"] = None
+                shared_state["entry_time"] = time.time()
+
+        await asyncio.sleep(interval_sec)
+
+from threading import Event
+trend_none_count = 0
+# === メイン処理 ===
+stop_event = Event()
+
+import traceback
+def handle_task_with_traceback(task_name):
+    def _callback(t):
+        try:
+            exception = t.exception()
+            if exception:
+                tb_str = ''.join(traceback.format_exception(
+                    type(exception), exception, exception.__traceback__))
+                notify_slack(f"【{task_name}】例外が発生しました:\n```{tb_str}```")
+        except Exception as e:
+            notify_slack(f"【{task_name}】コールバック内でさらにエラー: {e}")
+    return _callback
+
+# メイン取引処理
+async def auto_trade():
+    global trend_none_count
+    vstop = 0
+    loop = asyncio.get_event_loop()
+    values = 0
+    # 全タスクを登録
+    server_task = asyncio.create_task(start_socket_server(shared_state))
+    hold_status_task = loop.create_task(monitor_hold_status(shared_state, stop_event, interval_sec=1))
+    trend_task = loop.create_task(monitor_trend(stop_event, short_period=6, long_period=13, interval_sec=2, shared_state=shared_state))
+    loss_cut_task = loop.create_task(monitor_positions_fast(shared_state, stop_event, interval_sec=1))
+    quick_profit_task = loop.create_task(monitor_quick_profit(shared_state, stop_event))
+    
+    
+    # エラー通知
+    server_task.add_done_callback(handle_task_with_traceback("情報保存用サーバ"))
+    trend_task.add_done_callback(handle_task_with_traceback("トレンド関数"))
+    quick_profit_task.add_done_callback(handle_task_with_traceback("即時利確関数"))
+    
+    # 全てのタスクを待機（終了しない限り常駐）
+    await asyncio.gather(
+        server_task,
+        hold_status_task,
+        trend_task,
+        loss_cut_task,
+        quick_profit_task,
+        )
+    try:
+        while True:
+            status_market = is_market_open()
+            if  status_market != "OPEN" and status_market != "UNDEFINED":
+                if vstop==0:
+                    notify_slack(f"[市場] 市場が{status_market}中")
+                    vstop = 1
+                continue
+            else:
+                vstop = 0
+            get_margin_status(shared_state)
+            positions = get_positions()
+            prices = get_price()
+            if prices is None:
+                await asyncio.sleep(CHECK_INTERVAL)
+                continue
+
+            ask = prices["ask"]
+            bid = prices["bid"]
+            
+            spread = abs(ask - bid)
+            spread = round(spread, 6) 
+            last_spread = shared_state.get("last_spread")
+            
+            if spread > MAX_SPREAD:
+                if last_spread is None or abs(spread - last_spread) >= 0.001 :
+                    notify_slack(f"[スプレッド] {spread:.3f}円 → スプレッドが広すぎるため見送り")
+                    shared_state["last_spread"] = spread
+            else:
+                shared_state["last_spread"] = None  # 通常状態に戻したい場合
+           
+            if positions:
+                for pos in positions:
+                    entry = float(pos["price"])
+                    pid = pos["positionId"]
+                    size_str = int(pos["size"])
+                    side = pos.get("side", "BUY").upper()
+                    close_side = "SELL" if side == "BUY" else "BUY"
+                    spread = abs(prices["ask"] - prices["bid"])
+                    spread_history.append(spread)
+                    if len(spread_history) == spread_history.maxlen:
+                        if all(s > MAX_SPREAD for s in spread_history):
+                            close_order(pid, size_str, close_side)
+                            write_log("LOSS_CUT", bid)
+                            notify_slack("[即時損切] スプレッドが一定時間連続で拡大。ポジションを解消しました。")
+                    profit = round((ask - entry if side == "BUY" else entry - bid) * LOT_SIZE, 2)
+                    rsi=shared_state.get("RSI")
+                    if profit >= MIN_PROFIT:
+                        notify_slack(f"[決済] 利確条件（利益が {profit} 円）→ 決済")
+                        close_order(pid, size_str, close_side)
+                        record_result(profit, shared_state)
+                        write_log("SELL", bid)
+                        shared_state["trend"]=None
+                        shared_state["last_trend"]=None
+                        shared_state["entry_time"] = time.time()
+                    # RSI反発による利確（BUYのみ例示）
+                    elif side == "BUY" and rsi >= 45 and profit > 0:
+                        notify_slack(f"[決済] RSI反発による早期利確（RSI: {rsi:.2f}, 利益: {profit:.2f} 円）→ 決済")
+                        close_order(pid, size_str, close_side)
+                        record_result(profit, shared_state)
+                        write_log("RSI_PROFIT", bid)
+                        shared_state["trend"] = None
+                        shared_state["last_trend"] = None
+                        shared_state["entry_time"] = time.time()
+                    elif profit <= -MAX_LOSS:
+                        notify_slack(f"[決済] 損切り条件（損失が {profit} 円）→ 決済")
+                        close_order(pid, size_str, close_side)
+                        record_result(profit, shared_state)
+                        write_log("LOSS_CUT", bid)
+                        shared_state["trend"]=None
+                        shared_state["last_trend"]=None
+                        shared_state["entry_time"] = time.time()
+
+                    elif close_side == "SELL" and rsi <= 55 and profit > 0:
+                        notify_slack(f"[決済] RSI反落による早期利確（RSI: {rsi:.2f}, 利益: {profit:.2f} 円）→ 決済")
+                        close_order(pid, size_str, close_side)
+                        record_result(profit, shared_state)
+                        write_log("RSI_PROFIT", bid)
+                        shared_state["trend"] = None
+                        shared_state["last_trend"] = None
+                        shared_state["entry_time"] = time.time()
+            await asyncio.sleep(CHECK_INTERVAL)
+    except SystemExit as e:
+        # notify_slack(f"auto_trade()が終了 {type(e).__name__}: {e}")
+        try:
+            values = failSafe(values)
+        except:
+            pass
+        shutil.rmtree(temp_dir)
+        shutil.rmtree(key_box)
+    except Exception as e:
+        notify_slack(f"[致命的エラー] auto_trade() にて {type(e).__name__}: {e}")
+        logging.exception("auto_tradeで例外が発生しました")
+        raise  # systemdが再起動してくれるならraiseで良い
+    finally:
+        stop_event.set()
+        trend_task.cancel()
+        loss_cut_task.cancel()
+        quick_profit_task.cancel()
+        hold_status_task.cancel()
+        try:
+            await hold_status_task
+        except asyncio.CancelledError:
+            notify_slack("[INFO] monitor_hold_status タスク終了")
+        try:
+            await trend_task
+        except asyncio.CancelledError:
+            notify_slack("[INFO] monitor_trend タスク終了")
+        try:
+            await loss_cut_task
+        except asyncio.CancelledError:
+            notify_slack("[INFO] monitor_positions_fast タスク終了")
+        try:
+            await quick_profit_task
+        except asyncio.CancelledError:
+            notify_slack("[INFO] monitor_quick_profit タスク終了")
+
+#=== エントリーポイント ===
+if __name__ == "__main__":
+    try:
+        asyncio.run(auto_trade())
+    except SystemExit as e:
+        notify_slack(f"auto_trade()が終了 {type(e).__name__}: {e}")
+    except:
+        pass
+        
