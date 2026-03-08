@@ -3,6 +3,7 @@
 # 本ソフトウェアの使用、複製、改変、再配布には 合同会社Anvelk Innovations の事前の書面による許可が必要です。
 
 from Amount_DB import upsert_daily_pnl,get_yesterday_pnl,get_today_pnl
+from Setup import setup_database
 import news_block
 import os
 import hmac
@@ -2701,6 +2702,12 @@ async def auto_trade():
 
 #=== エントリーポイント ===
 if __name__ == "__main__":
+    args=sys.argv
+    if len(args) > 1:
+        if args[1] == "--setup":
+            setup_database()
+            print(" >> ")
+            sys.exit(0)
     try:
         asyncio.run(auto_trade())
     except SystemExit as e:

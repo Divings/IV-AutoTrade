@@ -5,8 +5,8 @@ import base64
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 
-DB_PATH = Path("api_settings.db")
-KEY_FILE = Path("aes_key.bin")
+DB_PATH = Path("/etc/AutoTrade/api_settings.db")
+KEY_FILE = Path("/etc/AutoTrade/aes_key.bin")
 
 # =========================
 # AESキー管理
@@ -93,19 +93,6 @@ def setup_database():
 # 実行部
 # =========================
 if __name__ == "__main__":
-
-    url = "https://github.com/Divings/Public_Auto_Trade_pac/releases/download/bot_config/bot_config.xml"
-    save_path = "/opt/Innovations/System/bot_config.xml"
-
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(save_path, "wb") as f:
-            f.write(response.content)
-        print(f"設定テンプレート取得: {save_path}")
-    except requests.exceptions.RequestException as e:
-        print(f"ダウンロードエラー: {e}")
 
     if DB_PATH.exists():
         overwrite = input(f"⚠ 既に {DB_PATH} が存在します。上書きしますか？ (y/N): ").strip().lower()
