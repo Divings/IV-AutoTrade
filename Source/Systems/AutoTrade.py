@@ -204,7 +204,7 @@ import base64
 from Crypto.Random import get_random_bytes
 from pathlib import Path
 
-KEY_FILE = Path("aes_key.bin")
+KEY_FILE = Path("/etc/AutoTrade/aes_key.bin")
 
 def load_or_create_aes_key():
     if KEY_FILE.exists():
@@ -235,7 +235,7 @@ def aes_decrypt(token: str) -> str:
     return cipher.decrypt_and_verify(ciphertext, tag).decode()
 
 # SQLite から API_KEY と API_SECRET を取得し、AES復号して返す
-def load_api_settings_sqlite(db_path="api_settings.db"):
+def load_api_settings_sqlite(db_path="/etc/AutoTrade/api_settings.db"):
     """
     SQLite から API_KEY と API_SECRET を取得し、AES復号して返す
     """

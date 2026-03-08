@@ -15,7 +15,7 @@ import base64
 from pathlib import Path
 from Crypto.Cipher import AES
 
-KEY_FILE = Path("aes_key.bin")
+KEY_FILE = Path("/etc/AutoTrade/aes_key.bin")
 
 # AESキーをファイルから読み込む
 def load_aes_key():
@@ -41,7 +41,7 @@ def load_config():
     Setdefault は 'slack' または 'telegram'
     """
     config = configparser.ConfigParser()
-    config.read('config.ini')
+    config.read('/etc/AutoTrade/config.ini')
     debug = False
     default = "slack"
     try:
@@ -67,7 +67,7 @@ def load_apifile_conf():
     
     # 設定ファイル読み込み
     config = configparser.ConfigParser()
-    config.read("/etcAutoTrade/config.ini", encoding="utf-8")
+    config.read("/etc/AutoTrade/config.ini", encoding="utf-8")
     log_level = config.get("API", "SOURCE", fallback="file")# デフォルトは有効(1)
     return log_level
 
