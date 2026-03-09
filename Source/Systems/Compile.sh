@@ -1,4 +1,4 @@
 #!/usr/bin/bash
 cd ./
-pyinstaller AutoTrade.py
+pyinstaller AutoTrade.py --onefile
 sudo cp dist/AutoTrade /mnt/data/IV-AutoTrade/Source/System
