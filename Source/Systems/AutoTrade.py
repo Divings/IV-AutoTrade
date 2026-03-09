@@ -722,7 +722,7 @@ try:
     setup_logging()
 except Exception as e:
     print(f"ログ初期化時にエラー: {e}")
-notify_slack("自動売買システム起動")
+print("自動売買システム起動")
 
 
 # == 記録済みデータ読み込み ===
