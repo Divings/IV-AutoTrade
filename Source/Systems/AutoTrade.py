@@ -2102,9 +2102,8 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                 today = date.today()
                 
                 upsert_daily_pnl(today,total)
-                logging.debug(f" 取引抑止時刻になりました、取引を中断します。\n 本日の累計損益は{total}円です。")
-                with open("/var/log/AutoTrade/totallog.txt", "a", encoding="utf-8") as file:
-                    file.write(f"本日({yesterday})の累計損益は{total}円です。\n")
+                notify_slack(f" 取引抑止時刻になりました、取引を中断します。\n 本日の累計損益は{total}円です。")
+
                 values = failSafe(values)
                 m = 1
                 STOP_ENV = 0
