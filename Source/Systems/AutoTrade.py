@@ -1163,8 +1163,8 @@ MACD_DIFF_THRESHOLD =config["MACD_DIFF_THRESHOLD"]
 SKIP_MODE = config["SKIP_MODE"] # 差分が小さい場合にスキップするかどうか、スキップする場合はTrue
 USD_TIME = config["USD_TIME"]
 MAX_Stop = config["MAX_Stop"]
-LOSS_STOP= config["LOSS_STOP"] 
-YDAY_STOP= config["YDAY_UP_STOP"]
+LOSS_STOP= config["LOSS_STOP"]  # 前日損失以下の時にエントリー停止
+YDAY_STOP= config["YDAY_UP_STOP"] # 前日損益がこの値以上のときエントリー停止
 
 # 夜間判定関数
 def is_night_time():
@@ -1742,7 +1742,7 @@ def close_order(position_id, size, side):
             logging.warning(f"[遅延警告] 決済APIに {elapsed:.2f} 秒かかりました")
         
         halt = profit_lock_check(API_KEY, API_SECRET, SYMBOL, YDAY_STOP)
-        loss = loss_lock_check(API_KEY, API_SECRET, SYMBOL, YDAY_STOP)
+        loss = loss_lock_check(API_KEY, API_SECRET, SYMBOL, LOSS_STOP)
         if loss == True:
             notify_slack("[損失確定ロック] 当日の損失が前日を上回ったため、新規注文を停止します")
             STOP_ENV = 2
@@ -2102,7 +2102,9 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                 today = date.today()
                 
                 upsert_daily_pnl(today,total)
-                notify_slack(f" 取引抑止時刻になりました、取引を中断します。\n 本日の累計損益は{total}円です。")
+                logging.debug(f" 取引抑止時刻になりました、取引を中断します。\n 本日の累計損益は{total}円です。")
+                with open("/var/log/AutoTrade/totallog.txt", "a", encoding="utf-8") as file:
+                    file.write(f"本日({yesterday})の累計損益は{total}円です。\n")
                 values = failSafe(values)
                 m = 1
                 STOP_ENV = 0
