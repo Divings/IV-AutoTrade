@@ -6,7 +6,7 @@ import configparser
 import hashlib
 from datetime import datetime
 from dotenv import load_dotenv
-from conf_load import load_settings_from_db,load_settings_from_sqlite()
+from conf_load import load_settings_from_db,load_settings_from_sqlite
 
 # .env を読み込む（TELEGRAM_TOKEN / TELEGRAM_CHAT_ID を使うため）
 load_dotenv()
