@@ -18,7 +18,7 @@ from datetime import datetime,timedelta
 from dotenv import load_dotenv
 try:
     from slack_notify import notify_slack
-except AttributeError:
+except ModuleNotFoundError:
     def notify_slack(msg):
         return None
 import sys
@@ -1251,8 +1251,8 @@ except:
     URL_Auth=""
 
 if api_settings=="file":
-    if os.path.exists("api_settings.db"):
-        api_data,secret_data = load_api_settings_sqlite("api_settings.db")
+    if os.path.exists("/etc/AutoTrade/api_settings.db"):
+        api_data,secret_data = load_api_settings_sqlite("/etc/AutoTrade/api_settings.db")
         Data_source = "APIデータソース:ローカルファイル"
 else:
     import conf_load
