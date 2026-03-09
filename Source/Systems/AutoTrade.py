@@ -1742,7 +1742,7 @@ def close_order(position_id, size, side):
             logging.warning(f"[遅延警告] 決済APIに {elapsed:.2f} 秒かかりました")
         
         halt = profit_lock_check(API_KEY, API_SECRET, SYMBOL, YDAY_STOP)
-        loss = loss_lock_check(API_KEY, API_SECRET, SYMBOL, LOSS_STOP)
+        loss = loss_lock_check(API_KEY, API_SECRET, SYMBOL, YDAY_STOP)
         if loss == True:
             notify_slack("[損失確定ロック] 当日の損失が前日を上回ったため、新規注文を停止します")
             STOP_ENV = 2
