@@ -16,7 +16,11 @@ from zoneinfo import ZoneInfo
 import logging
 from datetime import datetime,timedelta
 from dotenv import load_dotenv
-from slack_notify import notify_slack
+try:
+    from slack_notify import notify_slack
+except AttributeError:
+    def notify_slack(msg):
+        return None
 import sys
 import asyncio
 import statistics
@@ -1256,12 +1260,6 @@ else:
     Data_source="APIデータソース:データベース"
     api_data = settings.get("API_KEY")
     secret_data = settings.get("API_SECRET")
-
-save_dir = temp_dir +"/System_Status.txt"
-with open(save_dir, "w", encoding="utf-8") as f:
-    f.write(load_config_status)
-    f.write("\n")
-    f. write(Data_source)
 
 # APIキーとシークレットキーの設定
 API_KEY = api_data.strip()
