@@ -1,4 +1,3 @@
-import mysql.connector
 from decimal import Decimal
 from datetime import date, timedelta
 from typing import Optional
