@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 # .envを読み込む
 load_dotenv()
 
-SETTINGS_DB = Path("api_settings.db")
+SETTINGS_DB = Path("/etc/AutoTrade/api_settings.db")
 LOG_DB = Path("/var/log/AutoTrade/trade_logs.db")
 
 def write_log(action, price):

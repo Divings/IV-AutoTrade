@@ -101,8 +101,8 @@ _NOTIFY_COOLDOWN_SECONDS = 60
 msg_history = None
 
 # --- 直近ハッシュの永続化（プロセス再起動後も重複判定可能） ---
-_HASH_FILE = "notification_hash.txt"
-_LOG_FILE  = "notification_log.txt"
+_HASH_FILE = "/var/log/AutoTrade/notification_hash.txt"
+_LOG_FILE  = "/var/log/AutoTrade/notification_log.txt"
 
 from typing import Optional
 

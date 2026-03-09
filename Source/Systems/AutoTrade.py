@@ -1330,11 +1330,11 @@ except:
     pass
 
 # 初期残高ファイルがなければ作成
-if os.path.isfile("pricesData.txt") == False and now.hour>=1:
-    with open("pricesData.txt", "w", encoding="utf-8") as f:
+if os.path.isfile("/var/lib/AutoTrade//var/lib/AutoTrade/pricesData.txt") == False and now.hour>=1:
+    with open("/var/lib/AutoTrade/pricesData.txt", "w", encoding="utf-8") as f:
         f.write(available_amounts)
 else:
-    with open("pricesData.txt", "r", encoding="utf-8") as f:
+    with open("/var/lib/AutoTrade/pricesData.txt", "r", encoding="utf-8") as f:
         saved_available_amounts = f.read().strip()
         try:
             saved_available_amount = float(saved_available_amounts)
@@ -1347,8 +1347,8 @@ from AddData import insert_data
 def last_balance():
     SECRET_KEYs = os.getenv("SECRET_PASSWORD").encode()
     global available_amounts
-    if os.path.isfile("pricesData.txt") == True:
-        with open("pricesData.txt", "r", encoding="utf-8") as f:
+    if os.path.isfile("/var/lib/AutoTrade/pricesData.txt") == True:
+        with open("/var/lib/AutoTrade/pricesData.txt", "r", encoding="utf-8") as f:
             saved_available_amounts = f.read().strip()
             try:
                 saved_available_amount = float(saved_available_amounts)
@@ -1375,7 +1375,7 @@ def last_balance():
         with open("Error.log", "w", encoding="utf-8") as f:
             f.write(available_amounts)
 
-    with open("pricesData.txt", "w", encoding="utf-8") as f:
+    with open("/var/lib/AutoTrade/pricesData.txt", "w", encoding="utf-8") as f:
         f.write(available_amounts)
     return
 
