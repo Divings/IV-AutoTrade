@@ -579,7 +579,7 @@ def load_ini():
         # ConfigParser オブジェクトを作成
         config = configparser.ConfigParser()
         # config.ini を読み込む
-        config.read('config.ini')
+        config.read('/etc/AutoTrade/config.ini')
         reset = config.getboolean('settings', 'reset')
     except:
         reset = False
@@ -588,12 +588,12 @@ def load_ini():
 # testmode読み込み関数
 def load_testmode():
     import os
-    if os.path.exists('config.ini'):
+    if os.path.exists('/etc/AutoTrade/config.ini'):
         # ConfigParser オブジェクトを作成
         config = configparser.ConfigParser()
 
         # ファイルを読み込む
-        config.read('config.ini')
+        config.read('/etc/AutoTrade/config.ini')
 
         # 値を取得
         host = config.get('settings', 'TEST_MODE')
@@ -722,8 +722,7 @@ try:
     setup_logging()
 except Exception as e:
     print(f"ログ初期化時にエラー: {e}")
-print("自動売買システム起動")
-
+notify_slack("自動売買システム起動")
 
 # == 記録済みデータ読み込み ===
 shared_state = load_state()
@@ -1239,8 +1238,6 @@ import asyncio
 # SIGTERMハンドラ
 def handle_exit(signum, frame):
     print("SIGTERM 受信 → 状態保存")
-    save_state(shared_state)
-    save_price_buffer(price_buffer)  
     sys.exit(0)
 
 # === 環境変数の読み込み ===
@@ -1991,6 +1988,8 @@ def load_news(v):
     TODAY = datetime.now().date()
     NEWS_BLOCKS = load_news_blocks(TODAY)
     logging.info(f"[NEWS] loaded {len(NEWS_BLOCKS)} blocks for {TODAY}")
+
+notify_slack(f"[NEWS] loaded {len(NEWS_BLOCKS)} blocks for {TODAY}")
 
 # 利益/損失ロック時の環境変数
 STOP_NOTICS = 0
