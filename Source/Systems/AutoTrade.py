@@ -1330,7 +1330,7 @@ except:
     pass
 
 # 初期残高ファイルがなければ作成
-if os.path.isfile("/var/lib/AutoTrade//var/lib/AutoTrade/pricesData.txt") == False and now.hour>=1:
+if os.path.isfile("/var/lib/AutoTrade/pricesData.txt") == False and now.hour>=1:
     with open("/var/lib/AutoTrade/pricesData.txt", "w", encoding="utf-8") as f:
         f.write(available_amounts)
 else:
@@ -1372,7 +1372,7 @@ def last_balance():
         logging.info("データ挿入成功")
     else:
         logging.error("データ挿入失敗")
-        with open("Error.log", "w", encoding="utf-8") as f:
+        with open("/var/log/AutoTrade/Error.log", "w", encoding="utf-8") as f:
             f.write(available_amounts)
 
     with open("/var/lib/AutoTrade/pricesData.txt", "w", encoding="utf-8") as f:
