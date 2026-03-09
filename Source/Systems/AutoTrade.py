@@ -2099,8 +2099,10 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                 total,a = sum_yesterday_realized_pnl_at_midnight(api_key=API_KEY,secret_key=API_SECRET,symbol=SYMBOL,target_date=yesterday)
                 save_daily_summary(SYMBOL,total)
                 today = date.today()
-                
-                upsert_daily_pnl(today,total)
+                try:
+                    upsert_daily_pnl(today,total)
+                except Exception as e:
+                    logging.error(f"[エラー] daily_realized_pnlの更新に失敗: {e}")
                 notify_slack(f" 取引抑止時刻になりました、取引を中断します。\n 本日の累計損益は{total}円です。")
 
                 values = failSafe(values)
