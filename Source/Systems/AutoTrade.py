@@ -55,6 +55,13 @@ import pandas as pd
 JST = ZoneInfo("Asia/Tokyo")
 STOP_ENV = 0 # 取引中断判定用変数
 
+args=sys.argv
+if len(args) > 1:
+    if args[1] == "--setup":
+        setup_database()
+        input(" >> ")
+        sys.exit(0)
+
 def load_conf_FILTER():
     import configparser
     
@@ -2702,12 +2709,6 @@ async def auto_trade():
 
 #=== エントリーポイント ===
 if __name__ == "__main__":
-    args=sys.argv
-    if len(args) > 1:
-        if args[1] == "--setup":
-            setup_database()
-            print(" >> ")
-            sys.exit(0)
     try:
         asyncio.run(auto_trade())
     except SystemExit as e:
