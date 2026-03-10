@@ -315,7 +315,6 @@ def build_last_n_candles_from_prices(prices: list[float], n: int = 20) -> list[d
 
     return candles
 
-
 # 価格バッファから指定期間の高低差を計算
 def calculate_range(price_buffer, period=10):
     candles = build_last_n_candles_from_prices(list(price_buffer), n=period)
@@ -643,7 +642,7 @@ def calc_macd(close_prices, short_period=12, long_period=26, signal_period=9):
     return macd.tolist(), signal.tolist()
 
 # 初動判定関数
-def is_trend_initial(candles, min_body_size=0.003, min_breakout_ratio=0.005):
+def is_trend_initial(candles, min_body_size=0.005, min_breakout_ratio=0.005):
     """
     ローソク足リスト（最低2本）から初動を判定（緩め）
     """
