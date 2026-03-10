@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 
-DEFAULT_ROOT = Path("/opt/Innovations/System")
+DEFAULT_ROOT = Path("/etc/AutoTrade/")
 
 
 def build_default_rollback_name(prefix: str = "pre_restore_backup") -> str:

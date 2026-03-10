@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-DEFAULT_ROOT = Path("/opt/Innovations/System")
+DEFAULT_ROOT = Path("/etc/AutoTrade/")
 DEFAULT_PATTERNS = ("*.ini", "*.xml", "*.bin", "*.db")
 
 

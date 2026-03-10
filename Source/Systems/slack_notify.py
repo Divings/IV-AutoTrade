@@ -263,13 +263,13 @@ def notify_slack(message: str):
     is_same_as_memory = (msg_hash == msg_history)
     is_same_as_file = (file_hash is not None and msg_hash == file_hash)
     if is_same_as_memory or is_same_as_file:
-        _append_log("重複抑止(直前と同一)", message)
+        # _append_log("重複抑止(直前と同一)", message)
         return
 
     # クールダウン抑止（ハッシュではなくメッセージ文字列で管理）
     last_sent = _last_notify_times.get(message)
     if last_sent and (now - last_sent < _NOTIFY_COOLDOWN_SECONDS):
-        _append_log("クールダウン抑止", message)
+        # _append_log("クールダウン抑止", message)
         return
 
     _last_notify_times[message] = now
