@@ -2352,7 +2352,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
             continue
         
         n_nonce = 0
-        if rsi < 20:
+        if rsi is None or rsi < 20 :
             notify_slack(f"[RSI下限] RSI 警戒でスキップ")
             logging.info("[スキップ] RSI下限で警戒")
             await asyncio.sleep(interval_sec)
