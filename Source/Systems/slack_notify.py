@@ -57,15 +57,14 @@ def load_config():
 debug, default_service = load_config()
 
 # Slack Webhook URL（暗号化済み）
-config1 = load_settings_from_db()
+config1=load_settings_from_sqlite()
 
 try:
     # Slack Webhook URL の復号
     _slack_enc = config1.get("SLACK_WEBHOOK_URL")
 except AttributeError:
     print("[設定エラー] SLACK_WEBHOOK_URL が見つかりません。DB からの読み込みに失敗しています。")
-    config1=load_settings_from_sqlite()
-    _slack_enc = config1.get("SLACK_WEBHOOK_URL")
+    
     
 def load_apifile_conf():
     import configparser
