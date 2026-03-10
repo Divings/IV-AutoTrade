@@ -21,6 +21,9 @@ try:
 except ModuleNotFoundError:
     def notify_slack(msg):
         return None
+except:
+    def notify_slack(msg):
+        return None
 import sys
 import asyncio
 import statistics
