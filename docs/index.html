@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AutoTrade.py - GMOコインFX 自動売買ボット</title>
+  <style>
+    body {
+      font-family: "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif;
+      line-height: 1.8;
+      margin: 0;
+      padding: 0;
+      background: #f7f9fc;
+      color: #222;
+    }
+
+    .container {
+      max-width: 920px;
+      margin: 40px auto;
+      background: #fff;
+      padding: 40px;
+      border-radius: 16px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+    }
+
+    h1, h2, h3 {
+      color: #1d3557;
+      margin-top: 1.6em;
+    }
+
+    h1 {
+      margin-top: 0;
+      font-size: 2rem;
+      border-bottom: 3px solid #dbe7f3;
+      padding-bottom: 12px;
+    }
+
+    h2 {
+      font-size: 1.4rem;
+      border-left: 6px solid #4a90e2;
+      padding-left: 12px;
+    }
+
+    code, pre {
+      font-family: Consolas, Monaco, monospace;
+    }
+
+    pre {
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 16px;
+      border-radius: 12px;
+      overflow-x: auto;
+    }
+
+    code {
+      background: #eef4ff;
+      color:#0f172a;
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+
+    ul {
+      padding-left: 1.4em;
+    }
+
+    li {
+      margin-bottom: 0.4em;
+    }
+
+    .note {
+      background: #fff7e6;
+      border-left: 5px solid #ffb703;
+      padding: 14px 16px;
+      border-radius: 10px;
+      margin: 20px 0;
+    }
+
+    .footer {
+      margin-top: 40px;
+      font-size: 0.95rem;
+      color: #555;
+      border-top: 1px solid #ddd;
+      padding-top: 20px;
+    }
+
+    .section {
+      margin-bottom: 28px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>AutoTrade.py - GMOコインFX 自動売買ボット</h1>
+
+    <p>
+      このリポジトリは、GMOコインの外国為替（FX）APIを用いた自動売買プログラムを提供します。<br>
+      主に USD/JPY を対象とし、移動平均線を使ったトレンド判定および損益基準による自動売買を行います。<br>
+      <strong>※ 本リポジトリはオープンソースソフトウェアではありません。</strong>
+    </p>
+
+    <div class="section">
+      <h2>📁 フォルダ構成</h2>
+      <pre><code>Source
+├── Backup        # バックアップコード（旧バージョンなど）
+├── Systems       # 開発用コード
+├── System        # 本番環境用のビルド物置き場(主にビルド向けであり実ファイルなし)</code></pre>
+    </div>
+
+    <div class="section">
+      <h2>🚀 特徴</h2>
+      <ul>
+        <li>GMOコインFX（FOREX）API対応</li>
+        <li>USD/JPY 固定の通貨ペア</li>
+        <li>ローリング移動平均によるトレンド検出</li>
+        <li>自動エントリー・利確・損切り</li>
+        <li>証拠金維持率チェックとアラート</li>
+        <li>ログ・CSV出力によるトレード履歴の記録</li>
+        <li>一度実行すると、ほぼ放置で動作可能</li>
+        <li>config.ini に設定を追加すると、処理のカスタムが可能です。</li>
+      </ul>
+    </div>
+
+    <div class="section">
+      <h2>🔧 必要な環境</h2>
+      <ul>
+        <li>Python 3.8 以上</li>
+        <li><code>.env</code> ファイルに APIキーの設定が必要（Setup.py を実行することで、セットアップの実行が可能）</li>
+        <li>Linux 対応</li>
+      </ul>
+    </div>
+
+    <div class="section">
+      <h2>インストール方法</h2>
+      <pre><code>git clone https://github.com/Divings/IV-AutoTrade.git
+cd IV-AutoTrade/Source/System
+pip install -r requirements.txt</code></pre>
+    </div>
+
+    <div class="section">
+      <h2><code>.env</code> ファイルの例</h2>
+      <pre><code>API_KEY=あなたのAPIキー
+API_SECRET=あなたのAPIシークレット</code></pre>
+    </div>
+
+    <div class="section">
+      <h2>📈 ロジック概要</h2>
+
+      <h3>売買条件</h3>
+      <p>（デフォルト設定の場合）</p>
+      <ul>
+        <li>保有ポジションがない場合：
+          <ul>
+            <li>移動平均差で <code>BUY</code> または <code>SELL</code> を判断</li>
+            <li>トレンドが不明な場合は待機</li>
+          </ul>
+        </li>
+        <li>保有ポジションがある場合：
+          <ul>
+            <li>利益が40円以上 → 利確</li>
+            <li>損失が20円以上 → 損切り</li>
+          </ul>
+        </li>
+      </ul>
+
+      <h3>トレンド判定</h3>
+      <ul>
+        <li>短期：6期間</li>
+        <li>長期：13期間</li>
+        <li>サンプリング間隔：5秒ごと2分間</li>
+      </ul>
+    </div>
+
+    <div class="section">
+      <h2>📁 出力ファイル</h2>
+      <ul>
+        <li><code>fx_debug_log.txt</code>: ログ出力</li>
+        <li><code>fx_trade_log.csv</code>: 売買履歴（タイムスタンプ、アクション、価格）</li>
+      </ul>
+    </div>
+
+    <div class="section">
+      <h2>⚠️ 注意事項</h2>
+      <div class="note">
+        <ul>
+          <li>本ツールは実際の資金を使った売買を行います。必ず十分なテストと理解を持ってご使用ください。</li>
+          <li>テスト用途ではデモAPIがないため、実環境APIキーを使用する必要があります。</li>
+          <li>実行中は Ctrl+C で停止してください。</li>
+          <li>本ソフトウェア（利用者による改変を含みます）の使用または使用不能により、生じたいかなる損害についても、合同会社Anvelk Innovations は一切の責任を負いません。</li>
+          <li>このコードは、Oracle Linux 前提で構築されています。Windowsなどで実行する場合は作業ディレクトリなどを変更してください。</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>📄 ライセンス</h2>
+      <p>本ソフトウェアはプロプライエタリライセンスのもとで提供されています。</p>
+
+      <p>学習および閲覧目的に限りソースコードの参照を許可します。<br>
+      利用者自身が私的に使用する目的に限り、改変を許可します。</p>
+
+      <p>
+        ただし、改変の有無を問わず、本ソフトウェアおよびその一部を
+        第三者に対して再配布、公開、販売、共有、再ライセンスすること、
+        ならびに本ソフトウェアを利用して新たなソフトウェアや派生物を作成し
+        第三者に提供する行為は禁止されています。
+      </p>
+
+      <p>詳細は EULA および LICENSE ファイルを参照してください。</p>
+    </div>
+
+    <div class="footer">
+      <p>Generated from README.md</p>
+    </div>
+  </div>
+</body>
+</html>

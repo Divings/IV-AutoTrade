@@ -9,9 +9,8 @@
 ```
 Source
 ├── Backup        # バックアップコード（旧バージョンなど）
-├── Main          # 開発版のトレードロジック（AutoTrade.py）
-├── System        # 本番環境用のトレードロジック
-└── Util          # 補助スクリプト（署名ツール・設定補助など）
+├── Sustems       # 開発用コード
+├── System        # 本番環境用のトレードロジック置き場(主にビルド向け)
 ```
 
 ## 🚀 特徴
@@ -25,23 +24,17 @@ Source
 - 一度実行すると、ほぼ放置で動作可能
 - config.iniに設定を追加すると、処理のカスタムが可能です。
 
-## ⚙　config.ini
-
- [Auth]
- enable = 0
- (enableを0にした場合は、Auth.py経由の起動時に署名検証が回避されます)
-
 ## 🔧 必要な環境
 
 - Python 3.8 以上
 - `.env` ファイルに APIキーの設定が必要(Setup.pyを実行することで、セットアップの実行が可能)
-- Windows/Linux/macOS 対応
+- Linux 対応
 
 ### インストール方法
 
 ```bash
-git clone https://github.com/Divings/FX_Autotrade.git
-cd FX_Autotrade/Source/System
+git clone https://github.com/Divings/IV-AutoTrade.git
+cd IV-Autotrade/Source/System
 pip install -r requirements.txt
 ```
 
@@ -58,7 +51,7 @@ API_SECRET=あなたのAPIシークレット
 (デフォルト設定の場合)
 - 保有ポジションがない場合：
   - 移動平均差で `BUY` or `SELL` を判断
-  - トレンドが不明な場合は2回連続でBUYを強行
+  - トレンドが不明な場合は待機
 - 保有ポジションがある場合：
   - 利益が40円以上 → 利確
   - 損失が20円以上 → 損切り
