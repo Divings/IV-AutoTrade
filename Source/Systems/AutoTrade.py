@@ -1480,9 +1480,9 @@ def notify_asset():
     return 0
 
 # EncryptSecureDECの署名検証
-public_key_path = os.path.join(key_box, "publickey.asc")
-download_public_key(PUBLIC_KEY_URL, public_key_path)
-import_public_key(key_box, public_key_path)
+# public_key_path = os.path.join(key_box, "publickey.asc")
+# download_public_key(PUBLIC_KEY_URL, public_key_path)
+# import_public_key(key_box, public_key_path)
 
 # === トレンド判定関数 ===
 signal.signal(signal.SIGTERM, handle_exit)
@@ -1603,6 +1603,8 @@ def get_positions():
     except Exception as e:
         logging.error(f"[建玉] 取得失敗: {e}")
         return []
+    
+Trade_stop_notyfied = False
 
 # === 証拠金維持率取得 ===
 def get_margin_status(shared_state):
@@ -2075,7 +2077,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
     SPREAD = 0.005
     RANGE_START = SPREAD * 1.6   # 0.08
     RANGE_BLOCK = SPREAD * 1.2   # 0.06
-    
+    global Trade_stop_notyfied
     ADX_START   = 20
     ADX_RELAX   = 18
     n_nonce = 0
@@ -2153,7 +2155,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                 except Exception as e:
                     logging.error(f"[エラー] daily_realized_pnlの更新に失敗: {e}")
                 notify_slack(f" 取引抑止時刻になりました、取引を中断します。\n 本日の累計損益は{total}円です。")
-
+                Trade_stop_notyfied = False
                 values = failSafe(values)
                 m = 1
                 STOP_ENV = 0
@@ -2427,7 +2429,9 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
             trend = direction
         if TradeTime > nows.hour:
             if TradeTime != 0:
-                # notify_slack(f"[時間制限] {TradeTime}時以降のため取引スキップ")
+                if Trade_stop_notyfied==False:
+                    notify_slack(f"[時間制限] {TradeTime}時以降のため取引スキップ")
+                    Trade_stop_notyfied=True
                 logging.info(f"[時間制限] {TradeTime}時まで取引スキップ")
                 continue
         # if not confirm_signal(direction):
