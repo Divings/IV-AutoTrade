@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 import logging
 from datetime import datetime,timedelta
 from dotenv import load_dotenv
+from yen_trend import YenTrendState, update_today_open, judge_yen_trend, is_reverse_direction
 try:
     from slack_notify import notify_slack
 except ModuleNotFoundError:
@@ -57,6 +58,8 @@ import pandas as pd
 
 JST = ZoneInfo("Asia/Tokyo")
 STOP_ENV = 0 # 取引中断判定用変数
+
+yen_trend_state = YenTrendState() # 円トレンドの状態を保持するオブジェクト
 
 args=sys.argv
 if len(args) > 1:
@@ -594,6 +597,19 @@ def load_ini():
         reset = False
     return reset
 
+# TimeSkip_iniファイル読み込み関数
+def load_TimeSkip_ini():
+    try:
+        # ConfigParser オブジェクトを作成
+        config = configparser.ConfigParser()
+        # config.ini を読み込む
+        config.read('/etc/AutoTrade/config.ini')
+        TradeTime = config.getint('settings', 'TradeTime')
+    except:
+         TradeTime = 0 # デフォルトは無効
+    return TradeTime
+
+TradeTime = load_TimeSkip_ini()
 # testmode読み込み関数
 def load_testmode():
     import os
@@ -2016,6 +2032,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
     global candle_buffer
     global price_buffer
     global STOP_ENV
+    global yen_trend_state
     mcv = 0
     global MAX_SPREAD
     high_prices, low_prices, close_prices = load_price_history()
@@ -2385,6 +2402,11 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         is_initial, direction = is_trend_initial(candles) # 初動検出関数の呼び出し
         if (direction=="BUY" or direction=="SELL"):
             trend = direction
+        if TradeTime > nows.hour:
+            if TradeTime != 0:
+                # notify_slack(f"[時間制限] {TradeTime}時以降のため取引スキップ")
+                logging.info(f"[時間制限] {TradeTime}時まで取引スキップ")
+                continue
         if STOP_ENV == 1:
             if STOP_NOTICS == 0:
                 notify_slack(f"[停止] 利益確定ロック中のため新規注文停止")
