@@ -2427,7 +2427,8 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         is_initial, direction = is_trend_initial(candles) # 初動検出関数の呼び出し
         if (direction=="BUY" or direction=="SELL"):
             trend = direction
-        if TradeTime > nows.hour:
+        now = datetime.now()
+        if TradeTime > now.hour:
             if TradeTime != 0:
                 if Trade_stop_notyfied==False:
                     notify_slack(f"[時間制限] {TradeTime}時以降のため取引スキップ")
