@@ -657,6 +657,8 @@ def calc_macd(close_prices, short_period=12, long_period=26, signal_period=9):
     signal = macd.ewm(span=signal_period).mean()
     return macd.tolist(), signal.tolist()
 
+max_range_size=0.12
+
 # 初動判定関数
 def is_trend_initial(candles, min_body_size=0.005, min_breakout_ratio=0.005):
     """
@@ -679,6 +681,9 @@ def is_trend_initial(candles, min_body_size=0.005, min_breakout_ratio=0.005):
     range_prev = prev["high"] - prev["low"]
     range_last = last["high"] - last["low"]
 
+    if range_last > max_range_size:
+        logging.info(f"[フラッシュ除外] 値幅異常 range_last={range_last:.3f}")
+        return False, ""
     # 最低実体サイズチェック
     if body_last < min_body_size:
         return False, ""
