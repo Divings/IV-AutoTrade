@@ -657,6 +657,24 @@ def calc_macd(close_prices, short_period=12, long_period=26, signal_period=9):
     signal = macd.ewm(span=signal_period).mean()
     return macd.tolist(), signal.tolist()
 
+last_signal = None
+signal_count = 0
+
+def confirm_signal(direction):
+    global last_signal, signal_count
+
+    if direction == last_signal:
+        signal_count += 1
+    else:
+        signal_count = 1
+        last_signal = direction
+
+    if signal_count >= 2:
+        signal_count = 0
+        return True
+
+    return False
+
 max_range_size=0.12
 
 # 初動判定関数
@@ -2412,6 +2430,8 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                 # notify_slack(f"[時間制限] {TradeTime}時以降のため取引スキップ")
                 logging.info(f"[時間制限] {TradeTime}時まで取引スキップ")
                 continue
+        if not confirm_signal(direction):
+            continue
         if STOP_ENV == 1:
             if STOP_NOTICS == 0:
                 notify_slack(f"[停止] 利益確定ロック中のため新規注文停止")
