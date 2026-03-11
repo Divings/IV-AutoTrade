@@ -2430,8 +2430,8 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                 # notify_slack(f"[時間制限] {TradeTime}時以降のため取引スキップ")
                 logging.info(f"[時間制限] {TradeTime}時まで取引スキップ")
                 continue
-        if not confirm_signal(direction):
-            continue
+        # if not confirm_signal(direction):
+        #     continue
         if STOP_ENV == 1:
             if STOP_NOTICS == 0:
                 notify_slack(f"[停止] 利益確定ロック中のため新規注文停止")
