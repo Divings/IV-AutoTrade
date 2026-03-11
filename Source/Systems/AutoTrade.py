@@ -2605,11 +2605,16 @@ trend_none_count = 0
 stop_event = Event()
 
 import traceback
+import traceback
+
 def handle_task_with_traceback(task_name):
     def _callback(t):
         try:
             exception = t.exception()
             if exception:
+                if isinstance(exception, SystemExit):
+                    if exception.code in (0, None):
+                        return
                 tb_str = ''.join(traceback.format_exception(
                     type(exception), exception, exception.__traceback__))
                 notify_slack(f"【{task_name}】例外が発生しました:\n```{tb_str}```")
