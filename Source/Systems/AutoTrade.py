@@ -2074,7 +2074,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
     global NEWS_BLOCKS
     last_rsi_state = None
     last_adx_state = None
-    
+    msgr=0
     SPREAD = 0.005
     RANGE_START = SPREAD * 1.6   # 0.08
     RANGE_BLOCK = SPREAD * 1.2   # 0.06
@@ -2145,7 +2145,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
             m = 0
 
         if TIME_STOP != 0 and (now.hour < TIME_STOP or(now.hour == TIME_STOP and now.minute == 0)):
-            if m == 0:
+            if msgr == 0:
                 param = {"symbol": SYMBOL}
                 yesterday = (datetime.now(JST) - timedelta(days=1)).date()
                 total,a = sum_yesterday_realized_pnl_at_midnight(api_key=API_KEY,secret_key=API_SECRET,symbol=SYMBOL,target_date=yesterday)
@@ -2156,18 +2156,17 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                 except Exception as e:
                     logging.error(f"[エラー] daily_realized_pnlの更新に失敗: {e}")
                 notify_slack(f" 取引抑止時刻になりました、取引を中断します。\n 本日の累計損益は{total}円です。")
-                if m == 0:
-                    TODAY = datetime.now().date()
-                    NEWS_BLOCKS = load_news_blocks(TODAY)
-                    notify_slack(f"[NEWS] loaded {len(NEWS_BLOCKS)} blocks for {TODAY}")
+                TODAY = datetime.now().date()
+                NEWS_BLOCKS = load_news_blocks(TODAY)
+                notify_slack(f"[NEWS] loaded {len(NEWS_BLOCKS)} blocks for {TODAY}")
                 Trade_stop_notyfied = False
                 values = failSafe(values)
-                m = 1
+                msgr = 1
                 STOP_ENV = 0
                 STOP_NOTICS = 0
             continue
         else:
-            m = 0
+            msgr = 0
 
         if now.hour == 18 and now.minute == 30 and shared_state.get("price_reset_done") != True:
             high_prices.clear()
