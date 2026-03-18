@@ -2071,6 +2071,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
     max_profits = {}    # 建玉ごとの最大利益記録
     TRAILING_STOP = 15
     global VOL_THRESHOLD
+    global NEWS_BLOCKS
     last_rsi_state = None
     last_adx_state = None
     
@@ -2155,6 +2156,10 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                 except Exception as e:
                     logging.error(f"[エラー] daily_realized_pnlの更新に失敗: {e}")
                 notify_slack(f" 取引抑止時刻になりました、取引を中断します。\n 本日の累計損益は{total}円です。")
+                if m == 0:
+                    TODAY = datetime.now().date()
+                    NEWS_BLOCKS = load_news_blocks(TODAY)
+                    notify_slack(f"[NEWS] loaded {len(NEWS_BLOCKS)} blocks for {TODAY}")
                 Trade_stop_notyfied = False
                 values = failSafe(values)
                 m = 1
