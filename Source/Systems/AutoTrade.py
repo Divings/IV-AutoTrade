@@ -2158,7 +2158,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                 notify_slack(f" 取引抑止時刻になりました、取引を中断します。\n 本日の累計損益は{total}円です。")
                 TODAY = datetime.now().date()
                 NEWS_BLOCKS = load_news_blocks(TODAY)
-                notify_slack(f"[NEWS] loaded {len(NEWS_BLOCKS)} blocks for {TODAY}")
+                # notify_slack(f"[NEWS] loaded {len(NEWS_BLOCKS)} blocks for {TODAY}")
                 Trade_stop_notyfied = False
                 values = failSafe(values)
                 msgr = 1
