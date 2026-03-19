@@ -8,9 +8,7 @@ BLOCK_BEFORE_MIN = 15
 BLOCK_AFTER_MIN = 15
 
 def write_log(CSV_PATH):
-    path="/opt/Innovations/System/news_block_log.txt"
-    if os.path.exists(path)==False:
-        return 0
+    path="/var/log/AutoTrade/news_block_log.txt"
     with open(path, "a") as f:
         f.write(f"{datetime.now().isoformat()}\n")
         f.write(f"CSV_PATH: {CSV_PATH}\n")
@@ -30,7 +28,7 @@ def get_block_minutes(importance: int) -> int:
     """
     if importance >= 3:
         return 30
-    return 15
+    return 20
 
 from datetime import datetime
 
@@ -41,6 +39,7 @@ def get_weekly_news_path(base_dir="datas"):
 
 CSV_PATH = get_weekly_news_path()
 write_log(CSV_PATH)
+
 # ニュース指標のブロック時間を読み込む
 def load_news_blocks(target_date: datetime.date):
     blocks = []
