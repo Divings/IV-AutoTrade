@@ -4,8 +4,29 @@ import os
 #CSV_PATH = "news.csv"
 
 # 指標前後のブロック幅（分）
-BLOCK_BEFORE_MIN = 15
-BLOCK_AFTER_MIN = 15
+
+
+def load_conf_BEFORE():
+    import configparser
+    
+    # 設定ファイル読み込み
+    config = configparser.ConfigParser()
+    config.read("/etc/AutoTrade/config.ini", encoding="utf-8")
+    BLOCK_BEFORE_MIN  = config.getint("NEWSBLOCK", "BLOCK_BEFORE_MIN", fallback=30)# デフォルトは有効(1)
+    return BLOCK_BEFORE_MIN
+
+def load_conf_AFTER():
+    import configparser
+    
+    # 設定ファイル読み込み
+    config = configparser.ConfigParser()
+    config.read("/etc/AutoTrade/config.ini", encoding="utf-8")
+    BLOCK_AFTER_MIN  = config.getint("NEWSBLOCK", "BLOCK_AFTER_MIN", fallback=20)# デフォルトは有効(1)
+    return BLOCK_AFTER_MIN
+
+
+BLOCK_AFTER_MIN = load_conf_AFTER()
+BLOCK_BEFORE_MIN = load_conf_BEFORE()
 
 def write_log(CSV_PATH):
     path="/var/log/AutoTrade/news_block_log.txt"
@@ -27,8 +48,8 @@ def get_block_minutes(importance: int) -> int:
     指標重要度に応じたブロック時間（分）を返す
     """
     if importance >= 3:
-        return 30
-    return 20
+        return BLOCK_BEFORE_MIN
+    return BLOCK_AFTER_MIN
 
 from datetime import datetime
 
