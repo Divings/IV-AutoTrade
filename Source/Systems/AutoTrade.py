@@ -1068,9 +1068,9 @@ async def monitor_positions_fast(shared_state, stop_event, interval_sec=0.2):
                                 f"[即時損切] 損失条件到達 {profit:.1f}円 だがスプレッド異常({spread:.4f})。\n"
                                 f"緊急決済を試行します。"
                             )
-
+                    Loss_cut_profit = -MAX_LOSS - SLIPPAGE_BUFFER
                     notify_slack(
-                        f"[即時損切] 損失が {profit:.1f} 円（許容: -{MAX_LOSS}円 ±{SLIPPAGE_BUFFER}）→ 強制決済実行"
+                        f"[即時損切] 損失が {profit:.1f} 円（許容: -{Loss_cut_profit}円）→ 強制決済実行"
                     )
 
                     shared_state["closing_pids"].add(pid)
