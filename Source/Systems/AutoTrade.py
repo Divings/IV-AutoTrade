@@ -626,6 +626,27 @@ def load_testmode():
     else:
         return 0
 
+# TimeFilter設定読み込み関数
+import configparser
+
+config = configparser.ConfigParser()
+config.read('/etc/AutoTrade/config.ini')
+
+TIME_FILTER_ENABLED = config.getint('TIME_FILTER', 'enable', fallback=0)
+BLOCK_HOUR = config.getint('TIME_FILTER', 'BLOCK_HOUR', fallback=-1)
+BLOCK_MINUTE_START = config.getint('TIME_FILTER', 'BLOCK_MINUTE_START', fallback=0)
+BLOCK_MINUTE_END = config.getint('TIME_FILTER', 'BLOCK_MINUTE_END', fallback=0)
+
+# 安全時間帯かどうかを判定する関数
+def Trade_Safe_Block(now):
+    if TIME_FILTER_ENABLED != 1:
+        return 0
+
+    if now.hour == BLOCK_HOUR and BLOCK_MINUTE_START <= now.minute <= BLOCK_MINUTE_END:
+        return 1
+
+    return 0
+
 # メイン処理開始
 testmode = load_testmode()
 reset = load_ini()
@@ -1876,6 +1897,7 @@ def failSafe(values):
             close_order(pid,size_str,close_side)
             bid = prices["bid"]
             write_log("Fail_Safe", bid)
+        notify_slack("[フェイルセーフ] 強制決済を実行しました。\n市場状況により決済により損失が発生する場合があります。")
         return 1
     else:
         logging.info("強制決済建玉なし")
@@ -2106,6 +2128,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
     n_nonce = 0
     m_note = 0
     nn_nonce = 0
+    Time_stop_notyfied = False
     while not stop_event.is_set():
         positions = get_positions()    
         today = datetime.now()
@@ -2170,6 +2193,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                 NEWS_BLOCKS = load_news_blocks(TODAY)
                 # notify_slack(f"[NEWS] loaded {len(NEWS_BLOCKS)} blocks for {TODAY}")
                 Trade_stop_notyfied = False
+                Time_stop_notyfied = False
                 values = failSafe(values)
                 msgr = 1
                 STOP_ENV = 0
@@ -2445,12 +2469,18 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         if TradeTime > now.hour:
             if TradeTime != 0:
                 if Trade_stop_notyfied==False:
-                    notify_slack(f"[時間制限] {TradeTime}時以降のため取引スキップ")
+                    notify_slack(f"[時間制限] {TradeTime}時まで取引スキップ")
                     Trade_stop_notyfied=True
                 logging.info(f"[時間制限] {TradeTime}時まで取引スキップ")
                 continue
         # if not confirm_signal(direction):
         #     continue
+        if Trade_Safe_Block(now):
+            if Time_stop_notyfied==False:
+                    notify_slack(f"[時間制限] {BLOCK_HOUR:02d}:{BLOCK_MINUTE_START:02d}～{BLOCK_HOUR:02d}:{BLOCK_MINUTE_END:02d}はエントリースキップ")
+                    Time_stop_notyfied=True
+            continue
+
         if STOP_ENV == 1:
             if STOP_NOTICS == 0:
                 notify_slack(f"[停止] 利益確定ロック中のため新規注文停止")
