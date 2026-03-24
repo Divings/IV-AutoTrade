@@ -14,7 +14,7 @@
         </table>
         <table name="bot_config">
             <column name="key">MAX_SPREAD</column>
-            <column name="value">0.06</column>
+            <column name="value">0.006</column>
             <column name="ettc">許容するスプレッド上限</column>
         </table>
         <table name="bot_config">
