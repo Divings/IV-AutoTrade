@@ -1340,12 +1340,22 @@ from decimal import Decimal
 def profit_lock_check(api_key, secret_key, symbol, n_yen):
     now = datetime.now(JST)
     today = now.date()
-    yesterday = (now - timedelta(days=1)).date()
 
-    today_pnl, _ = sum_yesterday_realized_pnl_at_midnight(api_key, secret_key, symbol, target_date=today, close_only=True)
-    y_pnl, _     = sum_yesterday_realized_pnl_at_midnight(api_key, secret_key, symbol, target_date=yesterday, close_only=True)
+    today_pnl, _ = sum_yesterday_realized_pnl_at_midnight(
+        api_key, secret_key, symbol, target_date=today, close_only=True
+    )
 
-    return today_pnl >= (y_pnl + Decimal(n_yen)) and (today_pnl>=0)
+    return today_pnl >= Decimal(n_yen)
+
+# def profit_lock_check(api_key, secret_key, symbol, n_yen):
+#     now = datetime.now(JST)
+#     today = now.date()
+#     yesterday = (now - timedelta(days=1)).date()
+
+#     today_pnl, _ = sum_yesterday_realized_pnl_at_midnight(api_key, secret_key, symbol, target_date=today, close_only=True)
+#     y_pnl, _     = sum_yesterday_realized_pnl_at_midnight(api_key, secret_key, symbol, target_date=yesterday, close_only=True)
+
+#     return today_pnl >= (y_pnl + Decimal(n_yen)) and (today_pnl>=0)
 
 def loss_lock_check(api_key, secret_key, symbol, n_yen):
     now = datetime.now(JST)
