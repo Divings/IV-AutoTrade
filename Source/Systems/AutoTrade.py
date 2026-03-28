@@ -881,18 +881,20 @@ async def monitor_hold_status(shared_state, stop_event, interval_sec=1):
             side = pos.get("side", "BUY").upper()
             EXTENDABLE_LOSS = -10  # 許容する微損（円）
             profit = round((ask - entry if side == "BUY" else entry - bid) * LOT_SIZE, 2)
+            MAX_EXTENDED_HOLD = MAX_HOLD * 2
 
             if elapsed > MAX_HOLD:
                 
-                if profit > EXTENDABLE_LOSS and shared_state.get("trend") == side:
-                    logging.info("[延長] 保有時間超過だがトレンド継続中のため保持")
-                    return  # 決済せず延長
+                if profit > EXTENDABLE_LOSS and elapsed < MAX_EXTENDED_HOLD:
+                    logging.info(f"[延長] elapsed={elapsed:.1f}s profit={profit}")
+                    continue  # 決済せず延長
                 else:
                     if status == 0:
                         logging.info("延長 保有時間超過だが保有スキップ設定無効のため保持")
-                        return
+                        continue
                     else:
-                        notify_slack(f"注意! 保有時間が長すぎます\n 強制決済を発動します {profit}")
+                        logging.warning(f"[強制決済] elapsed={elapsed:.1f}s profit={profit}")
+                        notify_slack(f"注意! 保有時間が長すぎます\n 強制決済を発動します\n elapsed={elapsed:.1f}s profit={profit}")
                         rside = reverse_side(side)
                         close_order(pid, size, rside)
                         record_result(profit, shared_state)
