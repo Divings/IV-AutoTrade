@@ -2,7 +2,7 @@ import sys
 import xml.etree.ElementTree as ET
 import subprocess
 
-XML_PATH = "bot_config.xml"
+XML_PATH = "/etc/AutoTrade/bot_config.xml"
 
 
 def load_xml():
