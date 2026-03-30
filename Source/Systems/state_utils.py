@@ -5,10 +5,10 @@ from datetime import datetime, timedelta
 from collections import deque
 
 # --- 定数 ---
-STATE_FILE = "shared_state.json"
-BUFFER_FILE = "price_buffer.pkl"
+STATE_FILE = "/var/lib/AutoTrade/shared_state.json"
+BUFFER_FILE = "/var/lib/AutoTrade/price_buffer.pkl"
 BUFFER_MAXLEN = 240  # 12分相当
-ADX_BUFFER_FILE = "adx_buffer.pkl"
+ADX_BUFFER_FILE = "/var/lib/AutoTrade/adx_buffer.pkl"
 
 # --- 状態保存 ---
 def save_state(state):
@@ -46,7 +46,7 @@ def load_price_buffer():
 import json
 
 # --- ADX用価格履歴保存 ---
-def save_price_history(highs, lows, closes, filename="adx_history.json"):
+def save_price_history(highs, lows, closes, filename="/var/lib/AutoTrade/adx_history.json"):
     with open(filename, "w") as f:
         json.dump({
             "highs": list(highs),
@@ -58,7 +58,7 @@ from collections import deque
 import os
 
 # --- ADX用価格履歴読み込み ---
-def load_price_history(filename="adx_history.json", maxlen=240):
+def load_price_history(filename="/var/lib/AutoTrade/adx_history.json", maxlen=240):
     highs = deque(maxlen=maxlen)
     lows = deque(maxlen=maxlen)
     closes = deque(maxlen=maxlen)
