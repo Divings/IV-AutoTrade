@@ -30,7 +30,7 @@ BLOCK_BEFORE_MIN = load_conf_BEFORE()
 
 def write_log(CSV_PATH):
     path="/var/log/AutoTrade/news_block_log.txt"
-    with open(path, "a") as f:
+    with open(path, "w") as f:
         f.write(f"{datetime.now().isoformat()}\n")
         f.write(f"CSV_PATH: {CSV_PATH}\n")
         f.write(f"Exists: {os.path.exists(CSV_PATH)}\n")
