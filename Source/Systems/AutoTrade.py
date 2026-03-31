@@ -2686,7 +2686,6 @@ async def auto_trade():
     
     # 全てのタスクを待機（終了しない限り常駐）
     await asyncio.gather(
-        server_task,
         hold_status_task,
         trend_task,
         loss_cut_task,
