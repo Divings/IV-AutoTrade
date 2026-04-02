@@ -386,7 +386,7 @@ def is_volatile(prices, candles, period=5):
         historical_stdevs = [statistics.stdev(prices[i - period:i]) for i in range(period, period + 10)]
         median_stdev = statistics.median(historical_stdevs)
         dynamic_threshold_stdev = median_stdev * 1.2  # ←過去より20%高ければボラ高
-
+        
     except statistics.StatisticsError:
         return False
 
@@ -820,7 +820,9 @@ DEFAULT_CONFIG = {
     "USD_TIME":0,
     "MAX_Stop":30,
     "LOSS_STOP":0,
-    "YDAY_UP_STOP":50
+    "YDAY_UP_STOP":50,
+    "VOL_LOW":0.002, 
+    "VOL_HIGH":0.003
 }
 
 # グローバル変数初期化
@@ -1234,30 +1236,46 @@ USD_TIME = config["USD_TIME"]
 MAX_Stop = config["MAX_Stop"]
 LOSS_STOP= config["LOSS_STOP"]  # 前日損失以下の時にエントリー停止
 YDAY_STOP= config["YDAY_UP_STOP"] # 前日損益がこの値以上のときエントリー停止
-
+VOL_LOW = config["VOL_LOW"]
+VOL_HIGH = config["VOL_HIGH"]
 # 夜間判定関数
 def is_night_time():
     now = datetime.now().hour
     return (16 <= now <= 23) or (0 <= now <= 2)
 
-# 高ボラティリティ判定関数
-def is_high_volatility(prices, threshold=VOL_THRESHOLD):
-    # deque, list, tuple のいずれかか確認
-    if not isinstance(prices, (list, tuple, deque)) or len(prices) < 2:
-        return False
 
-    # dequeの場合はリストに変換
+def get_volatility_state(prices, low_threshold=0.002, high_threshold=0.003):
+    if not isinstance(prices, (list, tuple, deque)) or len(prices) < 5:
+        return "unknown", 0.0
+
     if isinstance(prices, deque):
         prices = list(prices)
-    logging.info(f"ボラリティ: {statistics.stdev(prices[-5:])}")
+
     try:
-        return statistics.stdev(prices[-5:]) > threshold
+        vol = statistics.stdev(prices[-5:])
     except statistics.StatisticsError:
-        return False
+        return "unknown", 0.0
+
+    logging.info(f"ボラリティ: {vol:.6f}")
+
+    if vol < low_threshold:
+        return "low", vol
+    elif vol < high_threshold:
+        return "weak", vol
+    else:
+        return "strong", vol
+    
+def is_high_volatility(prices, threshold=VOL_THRESHOLD):
+    state, vol = get_volatility_state(
+        prices,
+        low_threshold=threshold,
+        high_threshold=threshold
+    )
+    return vol > threshold
 
 def is_low_volatility_legacy(prices):
-    # 既存 high 判定を反転して low 判定にする（既存関数はそのまま）
-    return not is_high_volatility(prices, threshold=VOL_THRESHOLD)
+    state, _ = get_volatility_state(prices, low_threshold=VOL_THRESHOLD, high_threshold=0.003)
+    return state == "low"
 
 # ボラティリティに応じたMAX_LOSS調整関数
 import copy
@@ -2513,12 +2531,31 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                     if not can_sell(close_prices):
                         logging.info("SELL一致せずスキップ")
                         continue
-                # ボラリティフィルター
-                if is_low_volatility_legacy(close_prices):
-                    msg = f"[スキップ] {direction} ボラリティ低のためエントリースキップ"
-                    logging.info(msg)
-                    notify_slack(msg)
+
+                vol_state, vol = get_volatility_state(close_prices, low_threshold=VOL_LOW, high_threshold=VOL_HIGH)
+
+                if vol_state == "low":
+                    notify_slack("[スキップ] ボラ低のためエントリースキップ")
                     continue
+                elif vol_state == "weak":
+                    required_adx = 25
+                elif vol_state == "strong":
+                    required_adx = 20
+                else:
+                    logging.info(f"[スキップ] ボラ状態不明 vol_state={vol_state}")
+                    continue
+
+                if adx < required_adx:
+                    logging.info(f"[スキップ] ADX不足 adx={adx:.2f}, required={required_adx}, vol_state={vol_state}")
+                    notify_slack(f"[スキップ] ADX不足 でスキップ")
+                    continue
+
+                # # ボラリティフィルター
+                # if is_low_volatility_legacy(close_prices):
+                #     msg = f"[スキップ] {direction} ボラリティ低のためエントリースキップ"
+                #     logging.info(msg)
+                #     notify_slack(msg)
+                #     continue
 
                 # エントリー条件判定
                 if spread < MAX_SPREAD and adx >= 20 and rsi_ok:
