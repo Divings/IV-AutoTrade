@@ -1249,7 +1249,7 @@ def is_high_volatility(prices, threshold=VOL_THRESHOLD):
     # dequeの場合はリストに変換
     if isinstance(prices, deque):
         prices = list(prices)
-
+    logging.info(f"ボラリティ: {statistics.stdev(prices[-5:])}")
     try:
         return statistics.stdev(prices[-5:]) > threshold
     except statistics.StatisticsError:
@@ -1257,7 +1257,7 @@ def is_high_volatility(prices, threshold=VOL_THRESHOLD):
 
 def is_low_volatility_legacy(prices):
     # 既存 high 判定を反転して low 判定にする（既存関数はそのまま）
-    return not is_high_volatility(prices, threshold=0.0030)
+    return not is_high_volatility(prices, threshold=VOL_THRESHOLD)
 
 # ボラティリティに応じたMAX_LOSS調整関数
 import copy
