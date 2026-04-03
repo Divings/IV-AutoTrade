@@ -1651,7 +1651,7 @@ def get_price():
         data = res.json().get("data", [])
         for item in data:
             if item.get("symbol") == SYMBOL:
-                logging.info("")
+                
                 return {"ask": float(item["ask"]), "bid": float(item["bid"])}
         logging.error(f"[価格] 指定シンボル {SYMBOL} が見つかりません")
         return None
