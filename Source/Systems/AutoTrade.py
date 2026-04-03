@@ -1651,6 +1651,7 @@ def get_price():
         data = res.json().get("data", [])
         for item in data:
             if item.get("symbol") == SYMBOL:
+                logging.info("")
                 return {"ask": float(item["ask"]), "bid": float(item["bid"])}
         logging.error(f"[価格] 指定シンボル {SYMBOL} が見つかりません")
         return None
@@ -2806,7 +2807,7 @@ async def auto_trade():
     values = 0
     # 全タスクを登録
     hold_status_task = loop.create_task(monitor_hold_status(shared_state, stop_event, interval_sec=1))
-    trend_task = loop.create_task(monitor_trend(stop_event, short_period=6, long_period=13, interval_sec=2, shared_state=shared_state))
+    trend_task = loop.create_task(monitor_trend(stop_event, short_period=5, long_period=10, interval_sec=2, shared_state=shared_state))
     loss_cut_task = loop.create_task(monitor_positions_fast(shared_state, stop_event, interval_sec=1))
     quick_profit_task = loop.create_task(monitor_quick_profit(shared_state, stop_event))
     log_level_task = loop.create_task(monitor_log_level(stop_event, interval_sec=5))
