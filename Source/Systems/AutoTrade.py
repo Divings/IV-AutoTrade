@@ -2204,8 +2204,8 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
     xstop = 0
     trend = "未判定" # shared_state.get("trend",None)
     global testmode
-    VOL_THRESHOLD_SHORT = 0.002
-    VOL_THRESHOLD_LONG = 0.003
+    VOL_THRESHOLD_SHORT = 0.0012
+    VOL_THRESHOLD_LONG = 0.0018
     import hashlib
     last_notified = {}  # 建玉ごとの通知済みprofit記録
     max_profits = {}    # 建玉ごとの最大利益記録
