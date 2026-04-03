@@ -2011,32 +2011,69 @@ def failSafe(values):
     else:
         logging.info("強制決済建玉なし")
         return 1
-    
-# === 直近2本のローソク足構築関数 ===
-def build_last_2_candles_from_prices(prices: list[float]) -> list[dict]:
+    from datetime import datetime, timedelta
+
+def build_last_2_candles_from_prices(time_price_buffer: list[dict], interval_sec: int = 60) -> list[dict]:
     """
-    price_buffer（1秒〜数秒おきの価格履歴）から直近2本のローソク足を構築
-    1分あたり20本程度の粒度と仮定
+    時間ベースで直近2本のローソク足を構築
+    time_price_buffer: [{"ts": datetime, "price": float}, ...]
     """
-    if len(prices) < 40:
+
+    if len(time_price_buffer) < 2:
         return []
 
-    candles=[]
+    data = sorted(time_price_buffer, key=lambda x: x["ts"])
+    latest_ts = data[-1]["ts"]
+
+    # 時間を区切る（例: 60秒）
+    aligned_end = latest_ts - timedelta(
+        seconds=latest_ts.second % interval_sec,
+        microseconds=latest_ts.microsecond
+    )
+
+    candles = []
+
     for i in range(2):
-        start = -40 + i*20
-        end = None if i == 1 else start + 20
-        slice = prices[start:end]
-        if not slice:
+        start = aligned_end - timedelta(seconds=interval_sec * (2 - i))
+        end = start + timedelta(seconds=interval_sec)
+
+        bucket = [x["price"] for x in data if start <= x["ts"] < end]
+        if not bucket:
             continue
-        candle = {
-            "open": slice[0],
-            "close": slice[-1],
-            "high": max(slice),
-            "low": min(slice),
-        }
-        candles.append(candle)
+
+        candles.append({
+            "open": bucket[0],
+            "close": bucket[-1],
+            "high": max(bucket),
+            "low": min(bucket),
+        })
 
     return candles
+# # === 直近2本のローソク足構築関数 ===
+# def build_last_2_candles_from_prices(prices: list[float]) -> list[dict]:
+#     """
+#     price_buffer（1秒〜数秒おきの価格履歴）から直近2本のローソク足を構築
+#     1分あたり20本程度の粒度と仮定
+#     """
+#     if len(prices) < 40:
+#         return []
+
+#     candles=[]
+#     for i in range(2):
+#         start = -40 + i*20
+#         end = None if i == 1 else start + 20
+#         slice = prices[start:end]
+#         if not slice:
+#             continue
+#         candle = {
+#             "open": slice[0],
+#             "close": slice[-1],
+#             "high": max(slice),
+#             "low": min(slice),
+#         }
+#         candles.append(candle)
+
+#     return candles
 
 #=== エントリー判定関数 ===
 async def process_entry(trend, shared_state, price_buffer,rsi_str,adx_str,candles):
@@ -2185,6 +2222,22 @@ notify_slack(f"[NEWS] loaded {len(NEWS_BLOCKS)} blocks for {TODAY}")
 # 利益/損失ロック時の環境変数
 STOP_NOTICS = 0
 
+def append_price_buffers(price_buffer, time_price_buffer, bid):
+    global last_bid
+
+    if last_bid is not None and bid == last_bid:
+        return False
+
+    price_buffer.append(bid)  # ← 既存そのまま
+    time_price_buffer.append({
+        "ts": datetime.now(),
+        "price": bid
+    })
+
+    last_bid = bid
+    return True
+
+time_price_buffer = deque(maxlen=5000)
 # === トレンド判定を拡張（RSI+ADX込み） ===
 async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec=3, shared_state=None):
     import statistics
@@ -2202,6 +2255,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
     mcv = 0
     global MAX_SPREAD
     high_prices, low_prices, close_prices = load_price_history()
+    global time_price_buffer
     xstop = 0
     trend = "未判定" # shared_state.get("trend",None)
     trend_candidate = None
@@ -2272,6 +2326,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         
         prices = get_price()
         now = datetime.now()
+        
         
         if now.hour == 0 and now.minute == 0 and av == 0:
             values = failSafe(values) #翌日になったら強制決済
@@ -2344,11 +2399,18 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         mid = (ask + bid) / 2
 
         # price_buffer.append(bid)
-        price_buffer.append(mid)
+        #price_buffer.append(mid)
 
         high_prices.append(ask)
         low_prices.append(bid)
         close_prices.append(mid)
+
+        # ⭐ ここに置く
+        added = append_price_buffers(price_buffer, time_price_buffer, bid)
+        if not added:
+            logging.info("[価格] 変化なしのためbuffer追加スキップ")
+            await asyncio.sleep(interval_sec)
+            continue
 
         if len(price_buffer) != 240:
             mcv = 0
@@ -2523,7 +2585,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         logging.info(f"[MACD] クロス判定: UP={macd_cross_up}, DOWN={macd_cross_down}")
         logging.info(f"[判定詳細] trend候補={trend}, diff={diff:.5f}, stdev={statistics.stdev(list(price_buffer)[-5:]):.5f}")
         
-        candles = build_last_2_candles_from_prices(list(price_buffer))
+        candles = build_last_2_candles_from_prices(time_price_buffer)
         logging.info(f"[INFO] キャンドルデータ2本分 {candles}")
         range_value = calculate_range(price_buffer, period=10)
         if range_value is not None:
