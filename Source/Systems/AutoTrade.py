@@ -205,11 +205,11 @@ def load_apifile_conf():
 
 def load_Log_conf():
     import configparser
-    # 設定ファイル読み込み
+
     config = configparser.ConfigParser()
     config.read("/etc/AutoTrade/logconfig.ini", encoding="utf-8")
-    log_level = config.get("DEFAULT", "log_level", fallback="ERROR")# デフォルトは有効(1)
-    return log_level
+    log_level = config.get("DEFAULT", "log_level", fallback="ERROR")
+    return str(log_level).strip().upper()
 
 import threading
 
@@ -264,16 +264,26 @@ def reload_log_level_from_config(notify: bool = True):
 async def monitor_log_level(stop_event, interval_sec=5):
     last_value = None
 
-    while not stop_event.is_set():
-        try:
-            level_name = normalize_log_level(load_Log_conf())
-            if level_name != last_value:
-                apply_log_level(level_name, notify=True)
-                last_value = level_name
-        except Exception as e:
-            logging.exception(f"[LOG] ログ監視エラー: {e}")
+    try:
+        while not stop_event.is_set():
+            try:
+                raw_level = load_Log_conf()
+                level_name = normalize_log_level(raw_level)
 
-        await asyncio.sleep(interval_sec)
+                logging.warning(f"[LOG DEBUG] raw={raw_level} normalized={level_name} last={last_value}")
+
+                if level_name != last_value:
+                    apply_log_level(level_name, notify=True)
+                    last_value = level_name
+
+            except Exception as e:
+                logging.exception(f"[LOG] ログ監視エラー: {e}")
+
+            await asyncio.sleep(interval_sec)
+
+    except asyncio.CancelledError:
+        logging.info("[終了] monitor_log_level を停止します")
+        raise
 
 Auth = load_Auth_conf() # 1:有効,0:無効
 
@@ -870,6 +880,10 @@ price_history = deque(maxlen=240)
 asf=1
 try:
     setup_logging()
+    apply_log_level(load_Log_conf(), notify=False)
+    logging.warning("[LOG TEST] 起動時ログレベル適用完了")
+    logging.debug("[LOG TEST] DEBUG確認")
+    logging.info("[LOG TEST] INFO確認")
 except Exception as e:
     print(f"ログ初期化時にエラー: {e}")
 notify_slack("自動売買システム起動")
