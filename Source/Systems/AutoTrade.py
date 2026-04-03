@@ -2346,16 +2346,6 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         high_prices.append(ask)
         low_prices.append(bid)
         close_prices.append(mid)
-        prices= list(price_buffer)
-
-        if len(prices)>=2:
-            stdev5 = statistics.stdev(prices[-5:])
-        else:            
-            stdev5=0
-        logging.info(
-            f"[判定詳細] diff={diff:.8f}, stdev5={stdev5:.8f}, last5={list(price_buffer)[-5:]}"
-        )
-        
 
         if len(price_buffer) != 240:
             mcv = 0
@@ -2458,7 +2448,16 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         shared_state["last_long_ma"] = long_ma
         
         diff = short_ma - long_ma
+        prices= list(price_buffer)
 
+        if len(prices)>=2:
+            stdev5 = statistics.stdev(prices[-5:])
+        else:            
+            stdev5=0
+        logging.info(
+            f"[判定詳細] diff={diff:.8f}, stdev5={stdev5:.8f}, last5={list(price_buffer)[-5:]}"
+        )
+        
         try:
             rsi = calculate_rsi(list(price_buffer), period=14)
             adx = calculate_adx(high_prices, low_prices, close_prices, period=14)
