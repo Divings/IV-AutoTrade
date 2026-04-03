@@ -2751,7 +2751,7 @@ async def monitor_quick_profit(shared_state, stop_event, interval_sec=1):
 from threading import Event
 trend_none_count = 0
 # === メイン処理 ===
-stop_event = Event()
+stop_event = asyncio.Event()
 
 import traceback
 import traceback
