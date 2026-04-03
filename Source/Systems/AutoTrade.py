@@ -237,6 +237,14 @@ def apply_log_level(level_name: str, notify: bool = True):
         for handler in root_logger.handlers:
             handler.setLevel(level_value)
 
+        # 既に生成済みの logger にも反映
+        logger_dict = logging.root.manager.loggerDict
+        for name, logger_obj in logger_dict.items():
+            if isinstance(logger_obj, logging.Logger):
+                logger_obj.setLevel(level_value)
+                for handler in logger_obj.handlers:
+                    handler.setLevel(level_value)
+
         if _current_log_level_name != normalized:
             old = _current_log_level_name
             _current_log_level_name = normalized
