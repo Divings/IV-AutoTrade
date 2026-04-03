@@ -2221,7 +2221,7 @@ notify_slack(f"[NEWS] loaded {len(NEWS_BLOCKS)} blocks for {TODAY}")
 
 # 利益/損失ロック時の環境変数
 STOP_NOTICS = 0
-
+last_bid=None
 def append_price_buffers(price_buffer, time_price_buffer, bid):
     global last_bid
 
@@ -2266,7 +2266,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
     last_notified = {}  # 建玉ごとの通知済みprofit記録
     max_profits = {}    # 建玉ごとの最大利益記録
     TRAILING_STOP = 15
-    THRESHOLD = 0.0001
+    THRESHOLD = 0.0003
     global VOL_THRESHOLD
     global NEWS_BLOCKS
     last_rsi_state = None
