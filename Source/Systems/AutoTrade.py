@@ -2204,8 +2204,8 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
     xstop = 0
     trend = "未判定" # shared_state.get("trend",None)
     global testmode
-    VOL_THRESHOLD_SHORT = 0.006
-    VOL_THRESHOLD_LONG = 0.008
+    VOL_THRESHOLD_SHORT = 0.002
+    VOL_THRESHOLD_LONG = 0.003
     import hashlib
     last_notified = {}  # 建玉ごとの通知済みprofit記録
     max_profits = {}    # 建玉ごとの最大利益記録
@@ -2340,7 +2340,9 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         ask = prices["ask"]
         mid = (ask + bid) / 2
 
-        price_buffer.append(bid)
+        # price_buffer.append(bid)
+        price_buffer.append(mid)
+
         high_prices.append(ask)
         low_prices.append(bid)
         close_prices.append(mid)
@@ -2412,7 +2414,6 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
             logging.info(f"[スプレッド] 現在のスプレッド={spread:.5f}")
 
         if spread > MAX_SPREAD:
-            shared_state["trend"] = None
             if nstop== 0:
                 notify_slack(f"[スプレッド超過] エントリーをスキップ")
                 logging.warning(f"[スキップ] スプレッドが広すぎるため判定中止（{spread:.5f} > {MAX_SPREAD:.5f}）")
@@ -2428,7 +2429,6 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
             spread = ask - bid
             spread = round(spread, 6) 
             if spread > MAX_SPREAD:
-                shared_state["trend"] = None
                 if nstop== 0:
                     notify_slack(f"[スプレッド超過] 現在のスプレッド={spread:.5f} → 取引中にスプレッド拡大\n損切タイミングなどに影響の可能性あり")
                     logging.warning(f"[スキップ] 取引中にスプレッド拡大損切タイミングなどに影響の可能性あり（{spread:.5f} > {MAX_SPREAD:.5f}）")
@@ -2465,7 +2465,6 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
 
         if rsi is None or adx is None:
             if vstop==0:
-               shared_state["trend"] = None
                notify_slack("[注意] RSIまたはADXが未計算のため判定スキップ中")
                logging.warning("[スキップ] RSI/ADXがNone")
                vstop = 1
@@ -2533,7 +2532,6 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         today_str = datetime.now().strftime("%Y-%m-%d")
         if adx >= 95:
             # 無効化（非常事態）
-            shared_state["trend"] = None
             notify_slack(f"[警告] ADXが100に近いためスキップ")
             logging.warning("[スキップ] ADX異常値 → 判定中止")
             continue
@@ -2657,7 +2655,6 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                     trend = direction
                     direction = None
                     is_initial = None
-                    shared_state["trend"] = None
                     shared_state["cooldown_untils"] = time.time() + MAX_Stop
                     shared_state["firsts"] = True
                     values=0
@@ -2673,7 +2670,6 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
             trend = "BUY" if diff > 0 else "SELL"
             if adx < 20:
                 notify_slack(f"[スキップ] ADXが低いためトレンド弱くスキップ（ADX={adx:.2f}）")
-                shared_state["trend"] = None
                 await asyncio.sleep(interval_sec)
                 continue
             now = datetime.now()
