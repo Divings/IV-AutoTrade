@@ -211,6 +211,62 @@ def load_Log_conf():
     log_level = config.get("DEFAULT", "log_level", fallback="ERROR")# デフォルトは有効(1)
     return log_level
 
+import threading
+
+LOG_CONFIG_PATH = "/etc/AutoTrade/logconfig.ini"
+_current_log_level_name = None
+_log_level_lock = threading.Lock()
+
+def normalize_log_level(level_name: str) -> str:
+    if not level_name:
+        return "ERROR"
+    level_name = str(level_name).strip().upper()
+    allowed = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"}
+    return level_name if level_name in allowed else "ERROR"
+
+def apply_log_level(level_name: str, notify: bool = True):
+    global _current_log_level_name
+
+    normalized = normalize_log_level(level_name)
+    level_value = getattr(logging, normalized, logging.ERROR)
+
+    with _log_level_lock:
+        root_logger = logging.getLogger()
+        root_logger.setLevel(level_value)
+
+        for handler in root_logger.handlers:
+            handler.setLevel(level_value)
+
+        if _current_log_level_name != normalized:
+            old = _current_log_level_name
+            _current_log_level_name = normalized
+
+            msg = f"[LOG] ログレベル変更: {old} -> {normalized}"
+            logging.warning(msg)
+            if notify:
+                notify_slack(msg)
+
+def reload_log_level_from_config(notify: bool = True):
+    try:
+        level_name = load_Log_conf()
+        apply_log_level(level_name, notify=notify)
+    except Exception as e:
+        logging.exception(f"[LOG] ログレベル再読込失敗: {e}")
+
+async def monitor_log_level(stop_event, interval_sec=5):
+    last_value = None
+
+    while not stop_event.is_set():
+        try:
+            level_name = normalize_log_level(load_Log_conf())
+            if level_name != last_value:
+                apply_log_level(level_name, notify=True)
+                last_value = level_name
+        except Exception as e:
+            logging.exception(f"[LOG] ログ監視エラー: {e}")
+
+        await asyncio.sleep(interval_sec)
+
 Auth = load_Auth_conf() # 1:有効,0:無効
 
 import sqlite3
@@ -763,24 +819,42 @@ if os_name=="Windows":
 
 logleval=load_Log_conf()
 
-# ログ設定関数
 def setup_logging():
     """初期ログ設定（起動時）"""
+    global _current_log_level_name
+
+    initial_level_name = normalize_log_level(load_Log_conf())
+    initial_level_value = getattr(logging, initial_level_name, logging.ERROR)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(initial_level_value)
+
+    # 既存ハンドラを全部外す
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+        try:
+            handler.close()
+        except Exception:
+            pass
+
     handler = TimedRotatingFileHandler(
         LOG_FILE1,
-        when='midnight',       # 毎日深夜にローテート
-        interval=1,            # 1日ごとにローテート
-        backupCount=7,         # 最大7個のバックアップファイルを保持
-        encoding='utf-8',      # エンコーディング指定
-        utc=False              # 日本時間でのローテーション
+        when='midnight',
+        interval=1,
+        backupCount=7,
+        encoding='utf-8',
+        utc=False
     )
 
-    handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
-
-    logging.basicConfig(
-        level=logleval,
-        handlers=[handler]
+    handler.setLevel(initial_level_value)
+    handler.setFormatter(
+        logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
     )
+
+    root_logger.addHandler(handler)
+
+    _current_log_level_name = initial_level_name
+    logging.info(f"[LOG] 初期ログレベル: {initial_level_name}")
 
 # 最大240本まで保持（例：1分足で4時間分）
 price_history = deque(maxlen=240)
@@ -2708,19 +2782,22 @@ async def auto_trade():
     trend_task = loop.create_task(monitor_trend(stop_event, short_period=6, long_period=13, interval_sec=2, shared_state=shared_state))
     loss_cut_task = loop.create_task(monitor_positions_fast(shared_state, stop_event, interval_sec=1))
     quick_profit_task = loop.create_task(monitor_quick_profit(shared_state, stop_event))
-    
+    log_level_task = loop.create_task(monitor_log_level(stop_event, interval_sec=5))
     
     # エラー通知
     trend_task.add_done_callback(handle_task_with_traceback("トレンド関数"))
     quick_profit_task.add_done_callback(handle_task_with_traceback("即時利確関数"))
-    
+    hold_status_task.add_done_callback(handle_task_with_traceback("保有チェック関数"))
+    log_level_task.add_done_callback(handle_task_with_traceback("ログレベル関数"))
+
     # 全てのタスクを待機（終了しない限り常駐）
     await asyncio.gather(
         hold_status_task,
         trend_task,
         loss_cut_task,
         quick_profit_task,
-        )
+        log_level_task
+    )
     try:
         while True:
             status_market = is_market_open()
