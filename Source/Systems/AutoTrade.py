@@ -172,7 +172,7 @@ def is_sideways_sma(close_prices, threshold=0.015):
     values = convert_list(close_prices)
 
     if len(values) < 25:
-        return True  # データ不足は横ばい扱い
+        return False  # データ不足は横ばい扱いしない
 
     sma5  = sum(values[-5:]) / 5
     sma13 = sum(values[-13:]) / 13
