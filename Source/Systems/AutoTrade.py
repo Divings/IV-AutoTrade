@@ -2558,9 +2558,9 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         short_stdev = statistics.stdev(list(price_buffer)[-5:])
         long_stdev = statistics.stdev(list(price_buffer)[-20:])
         
-        if diff > THRESHOLD and stdev5 > 0:
+        if diff > THRESHOLD and stdev5 >= 0:
             trend_candidate = "BUY"
-        elif diff < -THRESHOLD and stdev5 > 0:
+        elif diff < -THRESHOLD and stdev5 >= 0:
             trend_candidate = "SELL"
         else:
             trend_candidate = None
