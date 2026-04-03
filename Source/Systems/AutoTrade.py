@@ -2558,9 +2558,9 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         short_stdev = statistics.stdev(list(price_buffer)[-5:])
         long_stdev = statistics.stdev(list(price_buffer)[-20:])
         
-        if diff > THRESHOLD and stdev5 >= 0:
+        if diff > THRESHOLD:
             trend_candidate = "BUY"
-        elif diff < -THRESHOLD and stdev5 >= 0:
+        elif diff < -THRESHOLD:
             trend_candidate = "SELL"
         else:
             trend_candidate = None
@@ -2586,9 +2586,9 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
             logging.info(f"[NEWS BLOCK] 指標ブロック無効化モード (テストモード有効化)")
             testmode = 1
 
-        if trend_candidate == "BUY" and short_stdev > VOL_THRESHOLD_SHORT:
+        if trend_candidate == "BUY":
             trend = "BUY"
-        elif trend_candidate == "SELL" and short_stdev > VOL_THRESHOLD_SHORT:
+        elif trend_candidate == "SELL":
             trend = "SELL"
         else:
             trend = "未判定"
