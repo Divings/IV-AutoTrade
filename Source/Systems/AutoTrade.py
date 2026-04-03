@@ -2346,11 +2346,12 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         high_prices.append(ask)
         low_prices.append(bid)
         close_prices.append(mid)
-        prices= list(price_buffer)
+        prices= list(price_buffer)[-5:]
+
         if len(prices)>=2:
             stdev5 = statistics.stdev(prices[-5:])
         else:            
-            stdev_val=0
+            stdev5=0
         logging.info(
             f"[判定詳細] diff={diff:.8f}, stdev5={stdev5:.8f}, last5={list(price_buffer)[-5:]}"
         )
