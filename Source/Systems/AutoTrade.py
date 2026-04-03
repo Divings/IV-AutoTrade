@@ -2204,6 +2204,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
     high_prices, low_prices, close_prices = load_price_history()
     xstop = 0
     trend = "未判定" # shared_state.get("trend",None)
+    trend_candidate = None
     global testmode
     VOL_THRESHOLD_SHORT = 0.0012
     VOL_THRESHOLD_LONG = 0.0018
@@ -2211,6 +2212,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
     last_notified = {}  # 建玉ごとの通知済みprofit記録
     max_profits = {}    # 建玉ごとの最大利益記録
     TRAILING_STOP = 15
+    THRESHOLD = 0.0001
     global VOL_THRESHOLD
     global NEWS_BLOCKS
     last_rsi_state = None
@@ -2555,7 +2557,14 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
 
         short_stdev = statistics.stdev(list(price_buffer)[-5:])
         long_stdev = statistics.stdev(list(price_buffer)[-20:])
-
+        
+        if diff > THRESHOLD and stdev5 > 0:
+            trend_candidate = "BUY"
+        elif diff < -THRESHOLD and stdev5 > 0:
+            trend_candidate = "SELL"
+        else:
+            trend_candidate = None
+        
         now = datetime.now()
         
         if len(price_buffer) < 180:
@@ -2577,6 +2586,13 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
             logging.info(f"[NEWS BLOCK] 指標ブロック無効化モード (テストモード有効化)")
             testmode = 1
 
+        if trend_candidate == "BUY" and short_stdev > VOL_THRESHOLD_SHORT:
+            trend = "BUY"
+        elif trend_candidate == "SELL" and short_stdev > VOL_THRESHOLD_SHORT:
+            trend = "SELL"
+        else:
+            trend = "未判定"
+        
         # 初動検出
         is_initial, direction = is_trend_initial(candles) # 初動検出関数の呼び出し
         if (direction=="BUY" or direction=="SELL"):
@@ -2609,6 +2625,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                 logging.info(f"[停止] 損失確定ロック中のため新規注文停止")
                 STOP_NOTICS = 1
             continue
+        
         if is_initial:
             # 簡易フィルター
             positions = get_positions()
