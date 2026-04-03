@@ -270,7 +270,7 @@ async def monitor_log_level(stop_event, interval_sec=5):
                 raw_level = load_Log_conf()
                 level_name = normalize_log_level(raw_level)
 
-                logging.warning(f"[LOG DEBUG] raw={raw_level} normalized={level_name} last={last_value}")
+                #logging.warning(f"[LOG DEBUG] raw={raw_level} normalized={level_name} last={last_value}")
 
                 if level_name != last_value:
                     apply_log_level(level_name, notify=True)
