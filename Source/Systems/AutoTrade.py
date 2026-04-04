@@ -1811,16 +1811,27 @@ def fee_test(trend):
     amount = 1.0 * 10000 * price  # 0.1lot = 1000通貨、1lot = 10000通貨
     fee = amount * 0.00002  # 0.002%
     logging.info(f"想定手数料: {fee:.3f} 円 (ロット: {LOT_SIZE}, レート: {price}, 約定金額: {amount:.2f})")
-        
+
+import random
+import string
+
+def generate_random(length=32):
+    chars = string.ascii_letters + string.digits  # 英大小文字 + 数字
+    return ''.join(random.choice(chars) for _ in range(length))
+
+# print(generate_random())
+id = None # 注文ごとに一意のIDを生成するためのグローバル変数
 # === 注文発行 ===
 def open_order(side="BUY"):
+    global id
     path = "/v1/order"
     method = "POST"
     timestamp = str(int(time.time() * 1000))  # より正確なミリ秒
-
+    id = generate_random() # 注文ごとに一意のIDを生成（例: 32文字のランダム英数字）
     body_dict = {
         "symbol": SYMBOL,
         "side": side,
+        "clientOrderId":id,
         "executionType": "MARKET",
         "size": str(LOT_SIZE),
         "symbolType": "FOREX"
@@ -1880,10 +1891,11 @@ def close_order(position_id, size, side):
     path = "/v1/closeOrder"
     method = "POST"
     timestamp = str(int(time.time() * 1000))  # より精度の高いミリ秒
-
+    global id
     body_dict = {
         "symbol": SYMBOL,
         "side": side,
+        "clientOrderId": id,
         "executionType": "MARKET",
         "settlePosition": [
             {
@@ -1920,6 +1932,7 @@ def close_order(position_id, size, side):
                 logging.info(f"ID {rootOrderIds}を決済")
                 write_info(rootOrderIds,temp_dir)
             rootOrderIds = None
+            id = None
             shared_state["oders_error"]=False
         else:
             notify_slack(f"[決済] 応答異常: {res.status_code} {data}")
