@@ -211,6 +211,14 @@ def load_Log_conf():
     log_level = config.get("DEFAULT", "log_level", fallback="ERROR")
     return str(log_level).strip().upper()
 
+def load_LogDelete_conf():
+    import configparser
+
+    config = configparser.ConfigParser()
+    config.read("/etc/AutoTrade/logconfig.ini", encoding="utf-8")
+    delete_mode = config.get("DEFAULT", "Delete", fallback=0)
+    return int(delete_mode)
+
 import threading
 
 LOG_CONFIG_PATH = "/etc/AutoTrade/logconfig.ini"
@@ -824,6 +832,12 @@ def is_trend_initial(candles, min_body_size=0.005, min_breakout_ratio=0.005):
 
 # ===ログ設定 ===
 LOG_FILE1 = f"/var/log/AutoTrade/fx_debug_log.txt"
+
+if os.path.exists(LOG_FILE1) and load_LogDelete_conf()==1: # 古いログが存在し、削除設定が有効な場合
+    try:
+        os.remove(LOG_FILE1)
+    except Exception as e:
+        print(f"古いログの削除に失敗: {e}")
 
 now = datetime.now()
 import shutil
