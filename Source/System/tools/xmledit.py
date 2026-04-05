@@ -18,9 +18,9 @@ def ask_restart():
         if ans in ("y", "yes"):
             print("▶ 再起動スクリプトを実行します...")
             subprocess.run(
-                ["sudo","/opt/Innovations/System/tools/Restart.sh"],
-                check=True
-            )
+            ["sudo", "bash", "/opt/Innovations/System/tools/Restart.sh"],
+            check=True
+     )
             print("✅ 再起動完了")
         else:
             print("ℹ 再起動はスキップしました")
