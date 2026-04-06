@@ -1649,13 +1649,13 @@ def is_market_open():
         response = requests.get(f"{FOREX_PUBLIC_API}/v1/status")
         response.raise_for_status()
         status = response.json().get("data", {}).get("status")
-        if status == False:
+        if status == None:
             logging.warning("[市場] 指標情報が未定義状態です。\nシステムエラーに注意してください")
             status="UNDEFINED"
         return status
     except Exception as e:
         logging.error(f"[市場] 状態取得失敗: {e}")
-        return False
+        return "UNDEFINED"
 
 # === 現在価格取得 ===
 def get_price():
