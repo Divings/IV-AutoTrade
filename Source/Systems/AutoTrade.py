@@ -2647,9 +2647,9 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         short_stdev = statistics.stdev(list(price_buffer)[-5:])
         long_stdev = statistics.stdev(list(price_buffer)[-20:])
         
-        if diff > THRESHOLD:
+        if diff > THRESHOLD and short_stdev > long_stdev * 1.3:
             trend_candidate = "BUY"
-        elif diff < -THRESHOLD:
+        elif diff < -THRESHOLD and short_stdev > long_stdev * 1.3:
             trend_candidate = "SELL"
         else:
             trend_candidate = None
@@ -2684,6 +2684,11 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         
         # 初動検出
         is_initial, direction = is_trend_initial(candles) # 初動検出関数の呼び出し
+        if (trend==direction):
+            logging.info(f"トレンド候補 {trend} と初動方向 {direction} が一致")
+        else:
+            logging.info(f"トレンド候補 {trend} と初動方向 {direction} が不一致")
+            continue
         if (direction=="BUY" or direction=="SELL"):
             trend = direction
         now = datetime.now()
