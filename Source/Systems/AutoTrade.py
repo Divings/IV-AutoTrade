@@ -2688,6 +2688,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
             logging.info(f"トレンド候補 {trend} と初動方向 {direction} が一致")
         else:
             logging.info(f"トレンド候補 {trend} と初動方向 {direction} が不一致")
+            notify_slack(f"トレンド候補 {trend} と初動方向 {direction} が不一致 → エントリー見送り")
             continue
         if (direction=="BUY" or direction=="SELL"):
             trend = direction
