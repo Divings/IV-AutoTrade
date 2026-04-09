@@ -707,6 +707,22 @@ def load_testmode():
     else:
         return 0
 
+def load_trend_mode():
+    import os
+    if os.path.exists('/etc/AutoTrade/config.ini'):
+        # ConfigParser オブジェクトを作成
+        config = configparser.ConfigParser()
+
+        # ファイルを読み込む
+        config.read('/etc/AutoTrade/config.ini')
+
+        # 値を取得
+        host = config.getint('settings', 'trend_mode',fallback=1)
+        return int(host)
+    else:
+        return 0
+
+
 # TimeFilter設定読み込み関数
 import configparser
 
@@ -2690,6 +2706,9 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         is_initial, direction = is_trend_initial(candles) # 初動検出関数の呼び出し
         if (trend==direction and is_initial):
             logging.info(f"トレンド候補 {trend} と初動方向 {direction} が一致")
+        elif (trend=="未判定" and load_trend_mode()==1 and direction in ("BUY","SELL")):
+            logging.info(f"トレンド候補 {trend} は未判定だが、初動方向 {direction} を採用")
+            trend = direction
         else:
             logging.info(f"トレンド候補 {trend} と初動方向 {direction} が不一致")
             if (trend!="未判定" and is_initial and direction is not None):
