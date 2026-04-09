@@ -2293,7 +2293,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
     last_notified = {}  # 建玉ごとの通知済みprofit記録
     max_profits = {}    # 建玉ごとの最大利益記録
     TRAILING_STOP = 15
-    THRESHOLD = 0.0003
+    THRESHOLD = 0.0002
     global VOL_THRESHOLD
     global NEWS_BLOCKS
     last_rsi_state = None
@@ -2434,8 +2434,12 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
 
         # ⭐ ここに置く
         added = append_price_buffers(price_buffer, time_price_buffer, bid)
+        now = datetime.now()
         if not added:
-            logging.info("[価格] 変化なしのためbuffer追加スキップ")
+            if (now.hour > 6 or (now.hour == 6 and now.minute >= 0)) and (now.hour < 18 or (now.hour == 18 and now.minute < 30)):
+                pass
+            else:
+                logging.info("[価格] 変化なしのためbuffer追加スキップ")
             await asyncio.sleep(interval_sec)
             continue
 
@@ -2647,9 +2651,9 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         short_stdev = statistics.stdev(list(price_buffer)[-5:])
         long_stdev = statistics.stdev(list(price_buffer)[-20:])
         
-        if diff > THRESHOLD and short_stdev > long_stdev * 1.3:
+        if diff > THRESHOLD and short_stdev > long_stdev * 1.1:
             trend_candidate = "BUY"
-        elif diff < -THRESHOLD and short_stdev > long_stdev * 1.3:
+        elif diff < -THRESHOLD and short_stdev > long_stdev * 1.1:
             trend_candidate = "SELL"
         else:
             trend_candidate = None
