@@ -2293,7 +2293,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
     last_notified = {}  # 建玉ごとの通知済みprofit記録
     max_profits = {}    # 建玉ごとの最大利益記録
     TRAILING_STOP = 15
-    THRESHOLD = 0.0002
+    THRESHOLD = 0.0003
     global VOL_THRESHOLD
     global NEWS_BLOCKS
     last_rsi_state = None
@@ -2651,9 +2651,9 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         short_stdev = statistics.stdev(list(price_buffer)[-5:])
         long_stdev = statistics.stdev(list(price_buffer)[-20:])
         
-        if diff > THRESHOLD and short_stdev > long_stdev * 1.1:
+        if diff > THRESHOLD and short_stdev > long_stdev * 1.2:
             trend_candidate = "BUY"
-        elif diff < -THRESHOLD and short_stdev > long_stdev * 1.1:
+        elif diff < -THRESHOLD and short_stdev > long_stdev * 1.2:
             trend_candidate = "SELL"
         else:
             trend_candidate = None
