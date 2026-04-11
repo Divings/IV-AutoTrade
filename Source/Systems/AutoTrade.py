@@ -2731,7 +2731,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
             logging.info(f"トレンド候補 {trend} は未判定だが、初動方向 {direction} を採用")
             trend = direction
         elif (trend!="未判定" and is_initial and direction is not None and load_trend_mode1()==1):
-            logging.info(f"トレンド候補 {trend} と初動方向 {direction} は不一致だが、トレンドモード1のため初動方向を優先")
+            logging.info(f"トレンド候補 {trend} と初動方向 {direction} は不一致だが、\nトレンドモード1が有効のため初動方向を優先")
             trend = direction
         else:
             logging.info(f"トレンド候補 {trend} と初動方向 {direction} が不一致")
