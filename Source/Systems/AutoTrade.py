@@ -441,7 +441,6 @@ def calculate_dmi(highs, lows, closes, period=14):
 import os
 import shutil
 import requests
-from EncryptSecureDEC import decrypt_file
 
 import statistics
 
@@ -583,39 +582,6 @@ def download_two_files(base_url, download_dir):
         with open(download_path, 'wb') as f:
             shutil.copyfileobj(response.raw, f)
         # print(f"Downloaded {filename} to {download_path}")
-
-# API読み込み関数
-def load_api(temp_dir):
-    
-    # パスワードを.envから読み込み
-    password = os.getenv("API_PASSWORD")
-    password2 = os.getenv("SECRET_PASSWORD")
-    if not password or not password2:
-        raise Exception("環境変数 API_PASSWORD または SECRET_PASSWORD が設定されていません")
-
-    download_two_files(URL_Auth, temp_dir)
-
-    # 復号処理
-    file_path1 = os.path.join(temp_dir, "API.txt.vdec")
-    decrypted_path1 = decrypt_file(file_path1, password)
-
-    file_path2 = os.path.join(temp_dir, "SECRET.txt.vdec")
-    decrypted_path2 = decrypt_file(file_path2, password2)
-
-    # 復号済ファイル読み取り
-    with open(decrypted_path1, 'r', encoding='utf-8') as f:
-        api_data = f.read()
-
-    with open(decrypted_path2, 'r', encoding='utf-8') as f:
-        secret_data = f.read()
-
-    # 復号後のファイルは削除
-    os.remove(file_path1)
-    os.remove(file_path2)
-    os.remove(decrypted_path1)
-    os.remove(decrypted_path2)
-
-    return api_data, secret_data
 
 # 共有状態の初期化
 shared_state = {

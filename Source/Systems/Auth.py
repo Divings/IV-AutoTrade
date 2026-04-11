@@ -39,7 +39,7 @@ def import_public_key(gpg_home, key_path):
         subprocess.run(['gpg', '--homedir', gpg_home, '--import', key_path], check=True,stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         # print("公開鍵をインポートしました")
     except subprocess.CalledProcessError:
-        # notify_slack("公開鍵インポート失敗")
+        #notify_slack("公開鍵インポート失敗")
         sys.exit(1)
 
 def verify_signature(gpg_home, signature_file, update_file):
@@ -53,7 +53,6 @@ def verify_signature(gpg_home, signature_file, update_file):
         print(result.stdout)
         print(result.stderr)
         return 1
-    # notify_slack("[INFO] 署名検証成功")
     return 0
 
 # 設定ファイルを読み込み
