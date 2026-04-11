@@ -732,7 +732,7 @@ def load_trend_mode1():
         config.read('/etc/AutoTrade/config.ini')
 
         # 値を取得
-        host = config.getint('trend_settings', 'trend_mode',fallback=1)
+        host = config.getint('trend_settings', 'trend_mode1',fallback=1)
         return int(host)
     else:
         return 0
