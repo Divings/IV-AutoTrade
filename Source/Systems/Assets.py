@@ -46,3 +46,45 @@ def get_positionLossGain(apiKey,secretKey):
         f.write(f"{inz}\n")
     return float(res_json["data"]["positionLossGain"])
     # return float(res_json["data"][0]["positionLossGain"])
+
+def get_balance(apiKey,secretKey):
+    timestamp = '{0}000'.format(int(time.mktime(datetime.now().timetuple())))
+    method    = 'GET'
+    endPoint  = 'https://forex-api.coin.z.com/private'
+    path      = '/v1/account/assets'
+
+    text = timestamp + method + path
+    sign = hmac.new(bytes(secretKey.encode('ascii')), bytes(text.encode('ascii')), hashlib.sha256).hexdigest()
+
+    headers = {
+        "API-KEY": apiKey,
+        "API-TIMESTAMP": timestamp,
+        "API-SIGN": sign
+    }
+
+    res = requests.get(endPoint + path, headers=headers)
+    res_json = json.loads(res.text)
+    
+    return float(res_json["data"]["balance"])
+
+def get_etc(apiKey,secretKey,key=None):
+    if key is None:
+        key = "balance"
+    timestamp = '{0}000'.format(int(time.mktime(datetime.now().timetuple())))
+    method    = 'GET'
+    endPoint  = 'https://forex-api.coin.z.com/private'
+    path      = '/v1/account/assets'
+
+    text = timestamp + method + path
+    sign = hmac.new(bytes(secretKey.encode('ascii')), bytes(text.encode('ascii')), hashlib.sha256).hexdigest()
+
+    headers = {
+        "API-KEY": apiKey,
+        "API-TIMESTAMP": timestamp,
+        "API-SIGN": sign
+    }
+
+    res = requests.get(endPoint + path, headers=headers)
+    res_json = json.loads(res.text)
+    
+    return float(res_json["data"][key])

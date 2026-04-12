@@ -293,6 +293,67 @@ async def monitor_log_level(stop_event, interval_sec=5):
         logging.info("[終了] monitor_log_level を停止します")
         raise
 
+import asyncio
+import logging
+from decimal import Decimal, InvalidOperation
+
+
+def to_decimal(value) -> Decimal:
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal("0")
+
+from Assets import get_balance
+
+def fetch_fx_assets():
+    try:
+        balance_data = str(get_balance(API_KEY,API_SECRET))
+        return to_decimal(balance_data)
+    except Exception as e:
+        logging.exception(f"資産の取得に失敗: {e}")
+        return Decimal("0")
+
+async def monitor_balance_increase(stop_event, interval_sec=60, threshold=Decimal("1000")):
+    last_balance = None
+
+    try:
+        while not stop_event.is_set():
+            try:
+                asset = fetch_fx_assets()  # 既存の資産取得関数
+                current_balance = to_decimal(asset["balance"])
+
+                # 初回は保存だけ
+                if last_balance is None:
+                    last_balance = current_balance
+                    logging.info(f"[資産監視] 初期化 balance={current_balance}")
+
+                else:
+                    diff = current_balance - last_balance
+
+                    if diff >= threshold:
+                        message = (
+                            "[入金検知]\n"
+                            f"balance増加: +{diff}\n"
+                            f"現在 balance={current_balance}"
+                        )
+                        notify_slack(message)
+                        logging.info(message)
+
+                    last_balance = current_balance
+
+            except Exception as e:
+                logging.exception(f"[資産監視] balance監視エラー: {e}")
+
+            await asyncio.sleep(interval_sec)
+
+    except asyncio.CancelledError:
+        logging.info("[終了] monitor_balance_increase を停止します")
+        raise
+
+
+
+
 Auth = load_Auth_conf() # 1:有効,0:無効
 
 import sqlite3
@@ -1809,29 +1870,14 @@ def get_margin_status(shared_state):
         notify_slack(f"[証拠金] 取得失敗: {e}")
 
 # === レスポンスから価格抽出 ===
-def fee_test(trend):
-    """ 
-    手数料から約定金額を算出するコード
-    trend: "BUY" または "SELL"
-    """
-    price_data = get_price()
-    if not price_data:
-        logging.error("価格データが取得できませんでした")
-        return
-    if trend == "BUY":
-        price = price_data["ask"]  # 買い注文は ask で約定
-    elif trend == "SELL":
-        price = price_data["bid"]  # 売り注文は bid で約定
-    else:
-        logging.error(f"無効なトレンド指定: {trend}")
-        return
-    amount = 1.0 * 10000 * price  # 0.1lot = 1000通貨、1lot = 10000通貨
-    fee = amount * 0.00002  # 0.002%
-    logging.info(f"想定手数料: {fee:.3f} 円 (ロット: {LOT_SIZE}, レート: {price}, 約定金額: {amount:.2f})")
+def fee_test(trend=None):
+    from Assets import get_etc
+    fee_info = get_etc(API_KEY, API_SECRET,"estimatedTradeFee")
+    logging.info(f"想定手数料: {fee_info:.3f} 円 （片道）")
 
 import random
 import string
-
+from  Assets import get_etc 
 def generate_random(length=32):
     chars = string.ascii_letters + string.digits  # 英大小文字 + 数字
     return ''.join(random.choice(chars) for _ in range(length))
@@ -1877,6 +1923,7 @@ def open_order(side="BUY"):
             #price = data["data"].get("price", "取得不可")
             notify_slack(f"[注文] 新規建て成功 {side}")
             fee_test(side)
+
             shared_state["oders_error"]=False
         else:
             notify_slack(f"[注文] 新規建て応答異常: {res.status_code} {data}")
@@ -2932,6 +2979,7 @@ async def auto_trade():
     loop = asyncio.get_event_loop()
     values = 0
     # 全タスクを登録
+    monitor_balance_increase_task = loop.create_task(monitor_balance_increase(stop_event, interval_sec=60))
     hold_status_task = loop.create_task(monitor_hold_status(shared_state, stop_event, interval_sec=1))
     trend_task = loop.create_task(monitor_trend(stop_event, short_period=5, long_period=10, interval_sec=2, shared_state=shared_state))
     loss_cut_task = loop.create_task(monitor_positions_fast(shared_state, stop_event, interval_sec=1))
@@ -2939,6 +2987,7 @@ async def auto_trade():
     log_level_task = loop.create_task(monitor_log_level(stop_event, interval_sec=5))
     
     # エラー通知
+    monitor_balance_increase_task.add_done_callback(handle_task_with_traceback("残高増加監視関数"))
     trend_task.add_done_callback(handle_task_with_traceback("トレンド関数"))
     quick_profit_task.add_done_callback(handle_task_with_traceback("即時利確関数"))
     hold_status_task.add_done_callback(handle_task_with_traceback("保有チェック関数"))
@@ -2950,7 +2999,8 @@ async def auto_trade():
         trend_task,
         loss_cut_task,
         quick_profit_task,
-        log_level_task
+        log_level_task,
+        monitor_balance_increase_task
     )
     try:
         while True:
