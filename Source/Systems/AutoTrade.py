@@ -320,9 +320,8 @@ async def monitor_balance_increase(stop_event, interval_sec=60, threshold=Decima
     try:
         while not stop_event.is_set():
             try:
-                asset = fetch_fx_assets()  # 既存の資産取得関数
-                current_balance = to_decimal(asset["balance"])
-
+                current_balance = fetch_fx_assets()  # 既存の資産取得関数
+            
                 # 初回は保存だけ
                 if last_balance is None:
                     last_balance = current_balance
