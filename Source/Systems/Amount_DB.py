@@ -8,8 +8,6 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
 
-from dotenv import load_dotenv
-
 DB_PATH = Path("/var/lib/AutoTrade/trade_log.db")
 
 
