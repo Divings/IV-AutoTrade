@@ -743,7 +743,7 @@ def load_trend_mode():
         config.read('/etc/AutoTrade/config.ini')
 
         # 値を取得
-        host = config.getint('trend_settings', 'trend_mode',fallback=1)
+        host = config.getint('trend_settings', 'trend_mode',fallback=0)
         return int(host)
     else:
         return 0
@@ -758,16 +758,18 @@ def load_trend_mode1():
         config.read('/etc/AutoTrade/config.ini')
 
         # 値を取得
-        host = config.getint('trend_settings', 'trend_mode1',fallback=1)
+        host = config.getint('trend_settings', 'trend_mode1',fallback=0)
         return int(host)
     else:
         return 0
 
 trade_mode = load_trend_mode()
+# 0が有効:取引ロック
+# 1が無効:取引許可
 if trade_mode == 0:
     msg="トレンドモードが無効です。\n stdevのトレンド判定が未判定の場合、エントリー判定を行いせん"
 else:
-    msg="トレンドモードが有効です。\n stdevのトレンド判定が安定の場合、エントリー判定を行います"
+    msg="トレンドモードが有効です。\n stdevのトレンド判定が有効の場合、エントリー判定を行います"
 notify_slack("[設定] " + msg)
 
 # TimeFilter設定読み込み関数
