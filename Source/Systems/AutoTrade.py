@@ -743,7 +743,7 @@ def load_trend_mode():
         config.read('/etc/AutoTrade/config.ini')
 
         # 値を取得
-        host = config.getint('trend_settings', 'trend_mode',fallback=0)
+        host = config.getint('trend_settings', 'trend_mode',fallback=1)
         return int(host)
     else:
         return 0
@@ -758,7 +758,7 @@ def load_trend_mode1():
         config.read('/etc/AutoTrade/config.ini')
 
         # 値を取得
-        host = config.getint('trend_settings', 'trend_mode1',fallback=0)
+        host = config.getint('trend_settings', 'trend_mode1',fallback=1)
         return int(host)
     else:
         return 0
@@ -766,10 +766,10 @@ def load_trend_mode1():
 trade_mode = load_trend_mode()
 # 0が有効:取引ロック
 # 1が無効:取引許可
-if trade_mode == 0:
-    msg="トレンドモードが無効です。\n stdevのトレンド判定が未判定の場合、エントリー判定を行いせん"
+if trade_mode == 1:
+    msg="トレンドモードが有効です。\n stdevのトレンド判定が未判定の場合、エントリー判定を行いせん"
 else:
-    msg="トレンドモードが有効です。\n stdevのトレンド判定が有効の場合、エントリー判定を行います"
+    msg="トレンドモードが無効です。\n stdevのトレンド判定が有効の場合、エントリー判定を行います"
 notify_slack("[設定] " + msg)
 
 # TimeFilter設定読み込み関数
@@ -2741,11 +2741,11 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         is_initial, direction = is_trend_initial(candles) # 初動検出関数の呼び出し
         if (trend==direction and is_initial):
             logging.info(f"トレンド候補 {trend} と初動方向 {direction} が一致")
-        elif (trend=="未判定" and load_trend_mode()==1 and direction in ("BUY","SELL")):
+        elif (trend=="未判定" and load_trend_mode()==0 and direction in ("BUY","SELL")):
             logging.info(f"トレンド候補 {trend} は未判定だが、初動方向 {direction} を採用")
             trend = direction
-        elif (trend!="未判定" and is_initial and direction is not None and load_trend_mode1()==1):
-            logging.info(f"トレンド候補 {trend} と初動方向 {direction} は不一致だが、\nトレンドモード1が有効のため初動方向を優先")
+        elif (trend!="未判定" and is_initial and direction is not None and load_trend_mode1()==0):
+            logging.info(f"トレンド候補 {trend} と初動方向 {direction} は不一致だが、\nトレンドモード1が無効のため初動方向を優先")
             trend = direction
         else:
             logging.info(f"トレンド候補 {trend} と初動方向 {direction} が不一致")
