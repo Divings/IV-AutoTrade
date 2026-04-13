@@ -7,6 +7,7 @@ from Setup import setup_database
 import news_block
 import os
 import hmac
+from Auth import authorize_environment
 import hashlib
 import json
 import requests
@@ -60,6 +61,12 @@ STOP_ENV = 0 # 取引中断判定用変数
 
 yen_trend_state = YenTrendState() # 円トレンドの状態を保持するオブジェクト
 
+auth,reson = authorize_environment()
+if auth == 0:
+    notify_slack("[実行停止] 実行環境が許可されていません: " + reson)
+    print("実行環境が許可されていません: " + reson)
+    sys.exit()
+     
 args=sys.argv
 if len(args) > 1:
     if args[1] == "--setup":
