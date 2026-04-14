@@ -4,7 +4,7 @@ import os
 import sys
 
 # ====== runtime guard ======
-LIB_PATH = os.path.join(os.path.dirname(__file__), "libanv_core.so")
+LIB_PATH = os.path.join("/opt/Innovations/System", "libanv_core.so")
 lib = CDLL(LIB_PATH)
 lib.anv_is_allowed_runtime.restype = c_int
 lib.anv_get_last_reason.restype = c_char_p
