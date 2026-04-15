@@ -7,6 +7,7 @@ from Setup import setup_database
 import news_block
 import os
 import hmac
+from execution_utils import latest_filter,extract_field
 from Auth import authorize_environment
 import hashlib
 import json
@@ -1925,6 +1926,19 @@ def generate_random(length=32):
     chars = string.ascii_letters + string.digits  # 英大小文字 + 数字
     return ''.join(random.choice(chars) for _ in range(length))
 
+def get_fee_api(id=None,a=None):
+    
+    filtered = latest_filter(API_KEY, API_SECRET, client_order_id=id,settle_type=a)
+
+    fees = extract_field(filtered, "fee")
+    fee = fees[0] if fees else 0.0
+    if a=="OPEN":
+        msg = "新規"
+    elif a=="CLOSE":
+        msg = "決済"
+    logging.info(f"確定手数料: {fee:.3f} 円 （{msg}）")
+    notify_slack(f"確定手数料: {fee:.3f} 円 （{msg}）")
+
 # print(generate_random())
 id = None # 注文ごとに一意のIDを生成するためのグローバル変数
 # === 注文発行 ===
@@ -1965,8 +1979,8 @@ def open_order(side="BUY"):
         if res.status_code == 200 and "data" in data:
             #price = data["data"].get("price", "取得不可")
             notify_slack(f"[注文] 新規建て成功 {side}")
-            fee_test(side)
-
+            #fee_test(side)
+            get_fee_api(id,"OPEN")
             shared_state["oders_error"]=False
         else:
             notify_slack(f"[注文] 新規建て応答異常: {res.status_code} {data}")
@@ -2034,7 +2048,7 @@ def close_order(position_id, size, side):
         if res.status_code == 200 and "data" in data:
             
             notify_slack(f"[決済] 成功: {side}")
-            fee_test(side)
+            get_fee_api(id,"CLOSE")
             if rootOrderIds != None:
                 logging.info(f"ID {rootOrderIds}を決済")
                 write_info(rootOrderIds,temp_dir)
