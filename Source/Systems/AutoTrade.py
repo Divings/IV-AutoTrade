@@ -834,8 +834,16 @@ def calc_macd(close_prices, short_period=12, long_period=26, signal_period=9):
 last_signal = None
 signal_count = 0
 
+last_entry_time = 0
+
 def confirm_signal(direction):
-    global last_signal, signal_count
+    global last_signal, signal_count, last_entry_time
+
+    now = time.time()
+
+    # 30秒以内の再判定を禁止
+    if now - last_entry_time < 30:
+        return False
 
     if direction == last_signal:
         signal_count += 1
@@ -845,6 +853,7 @@ def confirm_signal(direction):
 
     if signal_count >= 2:
         signal_count = 0
+        last_entry_time = now
         return True
 
     return False
@@ -873,14 +882,38 @@ def is_trend_initial(candles, min_body_size=0.005, min_breakout_ratio=0.005):
     range_prev = prev["high"] - prev["low"]
     range_last = last["high"] - last["low"]
 
+    upper_wick = last["high"] - max(last["open"], last["close"])
+    lower_wick = min(last["open"], last["close"]) - last["low"]
+    
+    if body_last == 0:
+        logging.info("[初動除外] body_last=0")
+        return False, ""
+    
+    if upper_wick > body_last * 1.2:
+        logging.info(
+            f"[初動除外] 上ヒゲ過多 upper_wick={upper_wick:.5f} body_last={body_last:.5f} ratio={upper_wick/body_last:.2f}"
+        )
+        return False, ""
+    if lower_wick > body_last * 1.2:
+        logging.info(
+            f"[初動除外] 下ヒゲ過多 lower_wick={lower_wick:.5f} body_last={body_last:.5f} ratio={lower_wick/body_last:.2f}"
+        )
+        return False, ""
+    
+    if body_prev < 0.003:
+        logging.info(f"[初動除外] body_prev不足 body_prev={body_prev:.5f}")
+        return False, ""
+    
     if range_last > max_range_size:
         logging.info(f"[フラッシュ除外] 値幅異常 range_last={range_last:.3f}")
         return False, ""
     # 最低実体サイズチェック
     if body_last < min_body_size:
+        logging.info(f"[初動除外] body_last不足 body_last={body_last:.5f}")
         return False, ""
     
     if (range_last / body_last) > 4:
+        logging.info(f"[初動除外] ヒゲ比率過多 range_last={range_last:.5f} body_last={body_last:.5f} ratio={range_last/body_last:.2f}")
         return False, ""  # ヒゲ比率が高すぎる場合は除外
 
     # 買いの初動
@@ -2760,7 +2793,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                 notify_slack(f"トレンド候補 {trend} と初動方向 {direction} が不一致 → エントリー見送り")
             continue
         if (direction=="BUY" or direction=="SELL"):
-            last_direction = direction
+            trend = direction
         now = datetime.now()
         if TradeTime > now.hour:
             if TradeTime != 0:
@@ -2770,7 +2803,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                 logging.info(f"[時間制限] {TradeTime}時まで取引スキップ")
                 continue
         # if not confirm_signal(direction):
-        #     continue
+        #      continue
         if Trade_Safe_Block(now):
             if Time_stop_notyfied==False:
                     notify_slack(f"[時間制限] {BLOCK_HOUR:02d}:{BLOCK_MINUTE_START:02d}～{BLOCK_HOUR:02d}:{BLOCK_MINUTE_END:02d}はエントリースキップ")
@@ -2843,7 +2876,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                         notify_slack(f"テストモードのため、エントリースキップ")# ログ出力のみ
                         continue
                     first_order(direction, shared_state)
-                    trend = direction
+                    # trend = direction
                     direction = None
                     is_initial = None
                     shared_state["cooldown_untils"] = time.time() + MAX_Stop
