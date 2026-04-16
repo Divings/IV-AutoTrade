@@ -1924,20 +1924,30 @@ def fee_test(trend=None):
 import random
 import string
 from  Assets import get_etc 
+
 def generate_random(length=32):
     chars = string.ascii_letters + string.digits  # 英大小文字 + 数字
     return ''.join(random.choice(chars) for _ in range(length))
 
+def Safe_float(value, default=0.0):
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        logging.warning(f"値の変換に失敗: {value} → デフォルト値 {default}")
+        return default
+    
 def get_fee_api(id=None,a=None):
     
     filtered = latest_filter(API_KEY, API_SECRET, client_order_id=id,settle_type=a)
 
     fees = extract_field(filtered, "fee")
-    fee = fees[0] if fees else 0.0
+    fee = Safe_float(fees[0]) if fees else 0.0
     if a=="OPEN":
         msg = "新規"
     elif a=="CLOSE":
         msg = "決済"
+    # elif a==None:
+    #     msg = "不明"
     logging.info(f"確定手数料: {fee:.3f} 円 （{msg}）")
     notify_slack(f"確定手数料: {fee:.3f} 円 （{msg}）")
 
