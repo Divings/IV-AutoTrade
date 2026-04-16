@@ -62,10 +62,12 @@ STOP_ENV = 0 # 取引中断判定用変数
 
 yen_trend_state = YenTrendState() # 円トレンドの状態を保持するオブジェクト
 
-auth,reson = authorize_environment()
-if auth == 0:
-    notify_slack("[実行停止] 実行環境が許可されていません: " + reson)
-    print("実行環境が許可されていません: " + reson)
+result = authorize_environment()
+if not result["ok"]:
+    reason = result["reason"]
+
+    notify_slack("実行停止: 実行環境が許可されていません: " + str(reason))
+    print("実行環境が許可されていません: " + str(reason))
     sys.exit()
      
 args=sys.argv
