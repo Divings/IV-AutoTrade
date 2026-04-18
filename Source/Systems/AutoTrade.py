@@ -322,7 +322,7 @@ def fetch_fx_assets():
         return to_decimal(balance_data)
     except Exception as e:
         logging.exception(f"資産の取得に失敗: {e}")
-        return Decimal("0")
+        return None
 
 async def monitor_balance_increase(stop_event, interval_sec=60, threshold=Decimal("1000")):
     last_balance = None
@@ -331,7 +331,19 @@ async def monitor_balance_increase(stop_event, interval_sec=60, threshold=Decima
         while not stop_event.is_set():
             try:
                 current_balance = fetch_fx_assets()  # 既存の資産取得関数
-            
+                
+                # 取得失敗時はスキップ
+                if current_balance is None:
+                    logging.warning("[資産監視] balance取得失敗のためスキップ")
+                    await asyncio.sleep(interval_sec)
+                    continue
+
+                # 念のため 0 や負値もスキップ
+                if current_balance <= 0:
+                    logging.warning(f"[資産監視] 異常なbalanceのためスキップ: {current_balance}")
+                    await asyncio.sleep(interval_sec)
+                    continue
+                
                 # 初回は保存だけ
                 if last_balance is None:
                     last_balance = current_balance
