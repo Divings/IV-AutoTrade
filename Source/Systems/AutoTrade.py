@@ -726,6 +726,17 @@ def load_ini():
         reset = False
     return reset
 
+def Reset_load_ini():
+    try:
+        # ConfigParser オブジェクトを作成
+        config = configparser.ConfigParser()
+        # config.ini を読み込む
+        config.read('/etc/AutoTrade/config.ini')
+        reset = config.getboolean('settings', 'reset')
+    except:
+        reset = False
+    return reset
+
 # TimeSkip_iniファイル読み込み関数
 def load_TimeSkip_ini():
     try:
@@ -737,6 +748,8 @@ def load_TimeSkip_ini():
     except:
          TradeTime = 0 # デフォルトは無効
     return TradeTime
+
+Resets = Reset_load_ini()
 
 TradeTime = load_TimeSkip_ini()
 # testmode読み込み関数
@@ -2524,15 +2537,15 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
             continue
         else:
             msgr = 0
-
-        # if now.hour == 18 and now.minute == 30 and not shared_state.get("price_reset_done", False):
-        #     keep = 200
-        #     high_prices[:] = high_prices[-keep:]
-        #     low_prices[:] = low_prices[-keep:]
-        #     close_prices[:] = close_prices[-keep:]
-        #     shared_state["price_reset_done"] = True
-        # elif now.minute != 30:
-        #     shared_state["price_reset_done"] = False
+        if Resets==1:
+            if now.hour == 18 and now.minute == 30 and not shared_state.get("price_reset_done", False):
+                keep = 200
+                high_prices[:] = high_prices[-keep:]
+                low_prices[:] = low_prices[-keep:]
+                close_prices[:] = close_prices[-keep:]
+                shared_state["price_reset_done"] = True
+            elif now.minute != 30:
+                shared_state["price_reset_done"] = False
 
         if now.hour == 6:
             if s == 0:
