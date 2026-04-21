@@ -2484,8 +2484,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         
         prices = get_price()
         now = datetime.now()
-        
-        
+                
         if now.hour == 0 and now.minute == 0 and av == 0:
             values = failSafe(values) #翌日になったら強制決済
             load_news(av)
@@ -2526,15 +2525,14 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         else:
             msgr = 0
 
-        if now.hour == 18 and now.minute == 30 and shared_state.get("price_reset_done") != True:
-            high_prices.clear()
-            low_prices.clear()
-            close_prices.clear()
-            
-            m = 0
-            shared_state["price_reset_done"] = True 
-        else:
-            shared_state["price_reset_done"] = False
+        # if now.hour == 18 and now.minute == 30 and not shared_state.get("price_reset_done", False):
+        #     keep = 200
+        #     high_prices[:] = high_prices[-keep:]
+        #     low_prices[:] = low_prices[-keep:]
+        #     close_prices[:] = close_prices[-keep:]
+        #     shared_state["price_reset_done"] = True
+        # elif now.minute != 30:
+        #     shared_state["price_reset_done"] = False
 
         if now.hour == 6:
             if s == 0:
@@ -2782,9 +2780,9 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         short_stdev = statistics.stdev(list(price_buffer)[-5:])
         long_stdev = statistics.stdev(list(price_buffer)[-20:])
         
-        if diff > THRESHOLD and short_stdev > long_stdev * 1.2:
+        if diff > THRESHOLD and short_stdev > long_stdev * 1.05:
             trend_candidate = "BUY"
-        elif diff < -THRESHOLD and short_stdev > long_stdev * 1.2:
+        elif diff < -THRESHOLD and short_stdev > long_stdev * 1.05:
             trend_candidate = "SELL"
         else:
             trend_candidate = None

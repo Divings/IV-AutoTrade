@@ -66,7 +66,7 @@ def load_price_history(filename="/var/lib/AutoTrade/adx_history.json", maxlen=24
     if os.path.exists(filename):
         with open(filename, "r") as f:
             data = json.load(f)
-            highs.extend(data.get("highs", []))
-            lows.extend(data.get("lows", []))
-            closes.extend(data.get("closes", []))
+            highs.extend(data.get("highs", [])[-maxlen:])
+            lows.extend(data.get("lows", [])[-maxlen:])
+            closes.extend(data.get("closes", [])[-maxlen:])
     return highs, lows, closes
