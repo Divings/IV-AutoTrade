@@ -2702,6 +2702,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
             stdev5 = 0.0
 
         logging.info(f"[判定詳細] diff={diff:.8f}, stdev5={stdev5:.8f}, last5={last5}")
+        logging.info(f"[stdev] short={short_stdev:.6f}, long={long_stdev:.6f}, ratio={short_stdev/long_stdev:.2f}")
         
         try:
             rsi = calculate_rsi(list(price_buffer), period=14)
