@@ -692,7 +692,8 @@ shared_state = {
     "cooldown_untils":None,
     "firsts":False,
     "max_profit":None,  # 保有中に記録された最大利益
-    "trail_offset":20
+    "trail_offset":20,
+    "trend_candidate":"未判定"
 }
 
 # 通知系のキーを初期化
@@ -2793,12 +2794,16 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         short_stdev = statistics.stdev(list(price_buffer)[-5:])
         long_stdev = statistics.stdev(list(price_buffer)[-20:])
         
+        prev_candidate = shared_state.get("trend_candidate", "未判定")
+
         if diff > THRESHOLD and short_stdev > long_stdev * 1.05:
             trend_candidate = "BUY"
         elif diff < -THRESHOLD and short_stdev > long_stdev * 1.05:
             trend_candidate = "SELL"
         else:
-            trend_candidate = None
+            trend_candidate = prev_candidate
+        
+        shared_state["trend_candidate"] = trend_candidate
         
         now = datetime.now()
         
