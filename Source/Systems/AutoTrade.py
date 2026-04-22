@@ -892,76 +892,82 @@ max_range_size=0.12
 # 初動判定関数
 def is_trend_initial(candles, min_body_size=0.005, min_breakout_ratio=0.005):
     """
-    ローソク足リスト（最低2本）から初動を判定（緩め）
+    ローソク足リスト（最低3本）から初動を判定
     """
     if shared_state.get("cooldown_untils", 0) > time.time():
-        # まだクールタイム中
         notify_slack("[スキップ] クールタイム中なので初動判定をスキップ")
         return False, ""
 
-    if len(candles) < 2:
+    if len(candles) < 3:
         return False, ""
 
-    # 末尾の2本を使う
-    prev = candles[-2]
-    last = candles[-1]
+    c1 = candles[-3]
+    c2 = candles[-2]
+    c3 = candles[-1]
 
-    body_last = abs(last["close"] - last["open"])
-    body_prev = abs(prev["close"] - prev["open"])
-    range_prev = prev["high"] - prev["low"]
-    range_last = last["high"] - last["low"]
+    body_1 = abs(c1["close"] - c1["open"])
+    body_2 = abs(c2["close"] - c2["open"])
+    body_3 = abs(c3["close"] - c3["open"])
 
-    upper_wick = last["high"] - max(last["open"], last["close"])
-    lower_wick = min(last["open"], last["close"]) - last["low"]
-    
-    if body_last == 0:
-        logging.info("[初動除外] body_last=0")
+    range_3 = c3["high"] - c3["low"]
+    upper_wick_3 = c3["high"] - max(c3["open"], c3["close"])
+    lower_wick_3 = min(c3["open"], c3["close"]) - c3["low"]
+
+    if body_3 == 0:
+        logging.info("[初動除外] body_3=0")
         return False, ""
-    
-    if upper_wick > body_last * 1.2:
+
+    if upper_wick_3 > body_3 * 1.2:
         logging.info(
-            f"[初動除外] 上ヒゲ過多 upper_wick={upper_wick:.5f} body_last={body_last:.5f} ratio={upper_wick/body_last:.2f}"
+            f"[初動除外] 上ヒゲ過多 upper_wick={upper_wick_3:.5f} body_3={body_3:.5f} ratio={upper_wick_3/body_3:.2f}"
         )
         return False, ""
-    if lower_wick > body_last * 1.2:
+
+    if lower_wick_3 > body_3 * 1.2:
         logging.info(
-            f"[初動除外] 下ヒゲ過多 lower_wick={lower_wick:.5f} body_last={body_last:.5f} ratio={lower_wick/body_last:.2f}"
+            f"[初動除外] 下ヒゲ過多 lower_wick={lower_wick_3:.5f} body_3={body_3:.5f} ratio={lower_wick_3/body_3:.2f}"
         )
         return False, ""
-    
-    if body_prev < 0.003:
-        logging.info(f"[初動除外] body_prev不足 body_prev={body_prev:.5f}")
-        return False, ""
-    
-    if range_last > max_range_size:
-        logging.info(f"[フラッシュ除外] 値幅異常 range_last={range_last:.3f}")
-        return False, ""
-    # 最低実体サイズチェック
-    if body_last < min_body_size:
-        logging.info(f"[初動除外] body_last不足 body_last={body_last:.5f}")
-        return False, ""
-    
-    if (range_last / body_last) > 4:
-        logging.info(f"[初動除外] ヒゲ比率過多 range_last={range_last:.5f} body_last={body_last:.5f} ratio={range_last/body_last:.2f}")
-        return False, ""  # ヒゲ比率が高すぎる場合は除外
 
-    # 買いの初動
+    if range_3 > max_range_size:
+        logging.info(f"[フラッシュ除外] 値幅異常 range_3={range_3:.3f}")
+        return False, ""
+
+    if body_3 < min_body_size:
+        logging.info(f"[初動除外] body_3不足 body_3={body_3:.5f}")
+        return False, ""
+
+    if (range_3 / body_3) > 4:
+        logging.info(
+            f"[初動除外] ヒゲ比率過多 range_3={range_3:.5f} body_3={body_3:.5f} ratio={range_3/body_3:.2f}"
+        )
+        return False, ""
+
+    prev_high = max(c1["high"], c2["high"])
+    prev_low = min(c1["low"], c2["low"])
+
+    # BUY初動:
+    # 最後の足が直前2本の高値帯を上抜けし、陽線で、終値推移も上向き
     if (
-        last["close"] > prev["high"] and
-        (last["close"] - last["open"]) > body_prev and
-        last["close"] > last["open"] and
-        (last["close"] - prev["high"]) >= min_breakout_ratio
+        c3["close"] > prev_high and
+        c3["close"] > c3["open"] and
+        body_3 > max(body_1, body_2) and
+        c3["close"] > c2["close"] > c1["close"] and
+        (c3["close"] - prev_high) >= min_breakout_ratio
     ):
         return True, "BUY"
 
-    # 売りの初動
+    # SELL初動:
+    # 最後の足が直前2本の安値帯を下抜けし、陰線で、終値推移も下向き
     if (
-        last["close"] < prev["low"] and
-        (last["open"] - last["close"]) > body_prev and
-        last["close"] < last["open"] and
-        (prev["low"] - last["close"]) >= min_breakout_ratio
+        c3["close"] < prev_low and
+        c3["close"] < c3["open"] and
+        body_3 > max(body_1, body_2) and
+        c3["close"] < c2["close"] < c1["close"] and
+        (prev_low - c3["close"]) >= min_breakout_ratio
     ):
         return True, "SELL"
+
     return False, ""
 
 # ===ログ設定 ===
@@ -2804,7 +2810,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
             trend_candidate = prev_candidate
         
         shared_state["trend_candidate"] = trend_candidate
-        
+
         now = datetime.now()
         
         if len(price_buffer) < 180:
