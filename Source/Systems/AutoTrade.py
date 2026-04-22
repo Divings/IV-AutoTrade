@@ -2589,8 +2589,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                 pass
             else:
                 logging.info("[価格] 変化なしのためbuffer追加スキップ")
-            await asyncio.sleep(interval_sec)
-            continue
+        
 
         if len(price_buffer) != 240:
             mcv = 0
