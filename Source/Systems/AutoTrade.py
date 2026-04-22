@@ -2777,9 +2777,9 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         
         prev_candidate = shared_state.get("trend_candidate", "未判定")
 
-        if diff > THRESHOLD and short_stdev > long_stdev * 1.05:
+        if diff > THRESHOLD and short_stdev > long_stdev * 0.9:
             trend_candidate = "BUY"
-        elif diff < -THRESHOLD and short_stdev > long_stdev * 1.05:
+        elif diff < -THRESHOLD and short_stdev > long_stdev * 0.9:
             trend_candidate = "SELL"
         else:
             trend_candidate = prev_candidate
@@ -2800,20 +2800,17 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                     n_nonce = 0
                     
         today_str = datetime.now().strftime("%Y-%m-%d")
-        if adx >= 95:
-            # 無効化（非常事態）
-            notify_slack(f"[警告] ADXが100に近いためスキップ")
-            logging.warning("[スキップ] ADX異常値 → 判定中止")
-            continue
+        # if adx >= 95:
+        #     # 無効化（非常事態）
+        #     notify_slack(f"[警告] ADXが100に近いためスキップ")
+        #     logging.warning("[スキップ] ADX異常値 → 判定中止")
+        #     continue
         
         n_nonce = 0
         if rsi is None or rsi < 20 :
-            notify_slack(f"[RSI下限] RSI 警戒でスキップ")
+            notify_slack(f"[RSI下限] RSI 警戒で警戒")
             logging.info("[スキップ] RSI下限で警戒")
-            await asyncio.sleep(interval_sec)
-            continue
 
-        
         now = datetime.now()
         
         if len(price_buffer) < 180:
@@ -2824,6 +2821,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
             continue
         else:
             count = 0
+
         nows = datetime.now()
         if SKIP_MODE == 0:
             blocked, start, end, currency, importance = is_blocked(nows, NEWS_BLOCKS)
