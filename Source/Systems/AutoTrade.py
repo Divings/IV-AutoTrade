@@ -2854,8 +2854,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
             if (trend!="未判定" and is_initial and direction is not None):
                 notify_slack(f"トレンド候補 {trend} と初動方向 {direction} が不一致 → エントリー見送り")
             continue
-        if (direction=="BUY" or direction=="SELL"):
-            trend = direction
+
         now = datetime.now()
         if TradeTime > now.hour:
             if TradeTime != 0:
