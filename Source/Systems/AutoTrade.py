@@ -2384,7 +2384,13 @@ candle_buffer = []
 from news_block import load_news_blocks, is_blocked
 
 TODAY = datetime.now().date()
-NEWS_BLOCKS = load_news_blocks(TODAY)
+try:
+    NEWS_BLOCKS = load_news_blocks(TODAY)
+except ValueError as e:
+    logging.error(e)
+    notify_slack("指標ブロックに使用するCSVデータがありません。\n損失を避けるため、システムを停止します。")
+    sys.exit(0)
+
 logging.info(f"[NEWS] loaded {len(NEWS_BLOCKS)} blocks for {TODAY}")
 
 def load_news(v):
@@ -2392,7 +2398,12 @@ def load_news(v):
     if v==1:
         return 1
     TODAY = datetime.now().date()
-    NEWS_BLOCKS = load_news_blocks(TODAY)
+    try:
+        NEWS_BLOCKS = load_news_blocks(TODAY)
+    except ValueError as e:
+        logging.error(e)
+        notify_slack("指標ブロックに使用するCSVデータがありません。\n損失を避けるため、システムを停止します。")
+        sys.exit(0)
     logging.info(f"[NEWS] loaded {len(NEWS_BLOCKS)} blocks for {TODAY}")
 
 notify_slack(f"[NEWS] loaded {len(NEWS_BLOCKS)} blocks for {TODAY}")
@@ -2533,7 +2544,12 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                     logging.error(f"[エラー] daily_realized_pnlの更新に失敗: {e}")
                 notify_slack(f" 取引抑止時刻になりました、取引を中断します。\n 本日の累計損益は{total}円です。")
                 TODAY = datetime.now().date()
-                NEWS_BLOCKS = load_news_blocks(TODAY)
+                try:
+                    NEWS_BLOCKS = load_news_blocks(TODAY)
+                except:
+                    logging.error(e)
+                    notify_slack("指標ブロックに使用するCSVデータがありません。\n損失を避けるため、システムを停止します。")
+                    sys.exit(0)
                 # notify_slack(f"[NEWS] loaded {len(NEWS_BLOCKS)} blocks for {TODAY}")
                 Trade_stop_notyfied = False
                 Time_stop_notyfied = False

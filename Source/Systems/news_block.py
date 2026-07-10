@@ -65,7 +65,8 @@ write_log(CSV_PATH)
 def load_news_blocks(target_date: datetime.date):
     blocks = []
 
-    if not os.path.exists(CSV_PATH):
+    if not os.path.exists(get_weekly_news_path()):
+        raise ValueError("NOT FOUND NEWS BLOCK DATA")
         return blocks
 
     with open(CSV_PATH, newline="", encoding="utf-8") as f:
