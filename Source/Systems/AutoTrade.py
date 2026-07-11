@@ -372,9 +372,6 @@ async def monitor_balance_increase(stop_event, interval_sec=60, threshold=Decima
         logging.info("[終了] monitor_balance_increase を停止します")
         raise
 
-
-
-
 Auth = load_Auth_conf() # 1:有効,0:無効
 
 import sqlite3
@@ -441,9 +438,12 @@ def load_api_settings_sqlite(db_path="/etc/AutoTrade/api_settings.db"):
 
     return api_key, api_secret
 
+from . import __version__
+
+#print(__version__)
 # ミッドナイトモード(Trueで有効化)
 night = True
-SYS_VER = "106.15.0"
+SYS_VER = __version__
 
 import numpy as np
 
