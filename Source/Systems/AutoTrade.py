@@ -77,6 +77,9 @@ if len(args) > 1:
         input(" >> ")
         sys.exit(0)
 
+from version import __version__
+SYS_VER = __version__
+
 def load_conf_FILTER():
     import configparser
     
@@ -1041,6 +1044,7 @@ try:
 except Exception as e:
     print(f"ログ初期化時にエラー: {e}")
 notify_slack("自動売買システム起動")
+notify_slack(f"システムバージョン:{SYS_VER}")
 
 # == 記録済みデータ読み込み ===
 shared_state = load_state()
