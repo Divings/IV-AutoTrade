@@ -438,7 +438,7 @@ def load_api_settings_sqlite(db_path="/etc/AutoTrade/api_settings.db"):
 
     return api_key, api_secret
 
-from . import __version__
+from version import __version__
 
 #print(__version__)
 # ミッドナイトモード(Trueで有効化)

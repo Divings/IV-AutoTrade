@@ -6,5 +6,8 @@ def load_apifile_conf():
     config.read("config.ini", encoding="utf-8")
     log_level = config.get("API", "SOURCE", fallback="file")# デフォルトは有効(1)
     return log_level
-print(load_apifile_conf())
+#print(load_apifile_conf())
+from . import __version__
+
+print(__version__)
 input(" >>")
