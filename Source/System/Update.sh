@@ -2,5 +2,5 @@
 
 yum makecache
 systemctl stop fx-autotrade.service
-yum update fx_autotrade-system -y
+yum update $1 -y
 systemctl restart fx-autotrade.service

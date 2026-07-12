@@ -2392,8 +2392,11 @@ try:
     NEWS_BLOCKS = load_news_blocks(TODAY)
 except ValueError as e:
     logging.error(e)
-    notify_slack("指標ブロックに使用するCSVデータがありません。\n損失を避けるため、システムを停止します。")
-    sys.exit(0)
+    if TODAY.weekday()==6:
+        notify_slack("指標ブロックに使用するCSVデータがないが、定期起動なので続行")
+    else:
+        notify_slack("指標ブロックに使用するCSVデータがありません。\n損失を避けるため、システムを停止します。")
+        sys.exit(0)
 
 logging.info(f"[NEWS] loaded {len(NEWS_BLOCKS)} blocks for {TODAY}")
 
