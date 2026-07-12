@@ -2547,6 +2547,13 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                 except Exception as e:
                     logging.error(f"[エラー] daily_realized_pnlの更新に失敗: {e}")
                 notify_slack(f" 取引抑止時刻になりました、取引を中断します。\n 本日の累計損益は{total}円です。")
+                if total > 0:
+                    vname="プラス"
+                elif value < 0:
+                    vname="マイナス"
+                else:
+                    vname="変化なし"
+                notify_slack(f"(本日の損益は昨日に比べて{vname}です)")
                 TODAY = datetime.now().date()
                 try:
                     NEWS_BLOCKS = load_news_blocks(TODAY)
