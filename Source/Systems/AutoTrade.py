@@ -802,14 +802,51 @@ def load_trend_mode1():
     else:
         return 0
 
+def load_settings():
+    config = configparser.ConfigParser()
+    config.read("/etc/AutoTrade/config.ini")
+
+    use_stdev = config.getboolean(
+        "trend_settings",
+        "use_stdev_trend",
+        fallback=True
+    )
+
+    use_entry_filter = config.getboolean(
+        "entry_settings",
+        "use_entry_filter",
+        fallback=True
+    )
+
+    return use_stdev, use_entry_filter
+
+USE_STDEV, USE_ENTRY_FILTER = load_settings()
+
+
 trade_mode = load_trend_mode()
 # 0が有効:取引ロック
 # 1が無効:取引許可
-if trade_mode == 1:
-    msg="トレンドモードが有効です。\n stdevのトレンド判定が未判定の場合、エントリー判定を行いせん"
+msg = "[設定]\n"
+
+if USE_STDEV:
+    msg += "stdev方向判定 : 有効\n"
+
+    msg += (
+        f"├ 未判定時 : {'見送り' if load_trend_mode() else '初動採用'}\n"
+    )
+
+    msg += (
+        f"└ 不一致時 : {'見送り' if load_trend_mode1() else 'stdev優先'}\n"
+    )
 else:
-    msg="トレンドモードが無効です。\n stdevのトレンド判定が有効の場合、エントリー判定を行います"
-notify_slack("[設定] " + msg)
+    msg += "stdev方向判定 : 無効\n"
+
+msg += (
+    f"\nエントリーフィルター : "
+    f"{'有効' if USE_ENTRY_FILTER else '無効'}"
+)
+
+notify_slack(msg)
 
 # TimeFilter設定読み込み関数
 import configparser
@@ -2432,27 +2469,6 @@ def append_price_buffers(price_buffer, time_price_buffer, bid):
 
     last_bid = bid
     return True
-
-
-def load_settings():
-    config = configparser.ConfigParser()
-    config.read("/etc/AutoTrade/config.ini")
-
-    use_stdev = config.getboolean(
-        "trend_settings",
-        "use_stdev_trend",
-        fallback=True
-    )
-
-    use_entry_filter = config.getboolean(
-        "entry_settings",
-        "use_entry_filter",
-        fallback=True
-    )
-
-    return use_stdev, use_entry_filter
-
-USE_STDEV, USE_ENTRY_FILTER = load_settings()
 
 time_price_buffer = deque(maxlen=5000)
 # === トレンド判定を拡張（RSI+ADX込み） ===
