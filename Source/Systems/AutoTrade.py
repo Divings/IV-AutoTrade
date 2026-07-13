@@ -2916,7 +2916,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
             "初動方向 %s を採用",
             direction,
             )
-
+        
         now = datetime.now()
         if TradeTime > now.hour:
             if TradeTime != 0:
