@@ -2433,6 +2433,27 @@ def append_price_buffers(price_buffer, time_price_buffer, bid):
     last_bid = bid
     return True
 
+
+def load_settings():
+    config = configparser.ConfigParser()
+    config.read("/etc/AutoTrade/config.ini")
+
+    use_stdev = config.getboolean(
+        "trend_settings",
+        "use_stdev_trend",
+        fallback=True
+    )
+
+    use_entry_filter = config.getboolean(
+        "entry_settings",
+        "use_entry_filter",
+        fallback=True
+    )
+
+    return use_stdev, use_entry_filter
+
+USE_STDEV, USE_ENTRY_FILTER = load_settings()
+
 time_price_buffer = deque(maxlen=5000)
 # === トレンド判定を拡張（RSI+ADX込み） ===
 async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec=3, shared_state=None):
@@ -2871,19 +2892,30 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         
         # 初動検出
         is_initial, direction = is_trend_initial(candles) # 初動検出関数の呼び出し
-        if (trend==direction and is_initial):
-            logging.info(f"トレンド候補 {trend} と初動方向 {direction} が一致")
-        elif (trend=="未判定" and load_trend_mode()==0 and direction in ("BUY","SELL")):
-            logging.info(f"トレンド候補 {trend} は未判定だが、初動方向 {direction} を採用")
-            trend = direction 
-        elif (trend!="未判定" and is_initial and direction is not None and load_trend_mode1()==0):
-            logging.info(f"トレンド候補 {trend} と初動方向 {direction} は不一致だが、\nトレンドモード1が無効のためトレンド方向を優先")
-            direction = trend
+        if USE_STDEV == 1:
+            if (trend==direction and is_initial):
+                logging.info(f"トレンド候補 {trend} と初動方向 {direction} が一致")
+            elif (trend=="未判定" and load_trend_mode()==0 and direction in ("BUY","SELL")):
+                logging.info(f"トレンド候補 {trend} は未判定だが、初動方向 {direction} を採用")
+                trend = direction 
+            elif (trend!="未判定" and is_initial and direction is not None and load_trend_mode1()==0):
+                logging.info(f"トレンド候補 {trend} と初動方向 {direction} は不一致だが、\nトレンドモード1が無効のためトレンド方向を優先")
+                direction = trend
+            else:
+                logging.info(f"トレンド候補 {trend} と初動方向 {direction} が不一致")
+                if (trend!="未判定" and is_initial and direction is not None):
+                    notify_slack(f"トレンド候補 {trend} と初動方向 {direction} が不一致 → エントリー見送り")
+                continue
         else:
-            logging.info(f"トレンド候補 {trend} と初動方向 {direction} が不一致")
-            if (trend!="未判定" and is_initial and direction is not None):
-                notify_slack(f"トレンド候補 {trend} と初動方向 {direction} が不一致 → エントリー見送り")
-            continue
+            if direction not in ("BUY", "SELL"): 
+                continue  # 初動検出されていない場合はスキップ
+            trend = direction
+
+            logging.info(
+            "[初動判定] stdev方向判定無効のため、"
+            "初動方向 %s を採用",
+            direction,
+            )
 
         now = datetime.now()
         if TradeTime > now.hour:
@@ -2925,14 +2957,16 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                     rsi_ok = False
                 if direction == "SELL" and rsi <= 30:
                     rsi_ok = False
-                if direction =="BUY":
-                    if not can_buy(close_prices):
-                        logging.info("BUY一致せずスキップ")
-                        continue
-                elif direction=="SELL":
-                    if not can_sell(close_prices):
-                        logging.info("SELL一致せずスキップ")
-                        continue
+
+                if USE_ENTRY_FILTER== 1:
+                    if direction =="BUY":
+                        if not can_buy(close_prices):
+                            logging.info("BUY一致せずスキップ")
+                            continue
+                    elif direction=="SELL":
+                        if not can_sell(close_prices):
+                            logging.info("SELL一致せずスキップ")
+                            continue
 
                 vol_state, vol = get_volatility_state(close_prices, low_threshold=VOL_LOW, high_threshold=VOL_HIGH)
 
