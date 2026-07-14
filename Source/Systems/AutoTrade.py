@@ -2883,7 +2883,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         if len(price_buffer) < 180:
             if count == 0:
                 count = 1            
-                notify_slack(f"[スキップ]price_bufferデータが許容値に未達 {count}")
+                notify_slack(f"[スキップ]price_bufferデータが許容値に未達")
                 # vcount = count
             continue
         else:
