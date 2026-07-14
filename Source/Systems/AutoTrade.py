@@ -2513,6 +2513,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
     ADX_RELAX   = 18
     n_nonce = 0
     values = 0
+    last_initial_notify = None
     vcount = 0
     av = 0
     sstop = 0
@@ -2924,7 +2925,17 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
                 continue
         else:
             if direction not in ("BUY", "SELL"): 
+                now_notify = datetime.now()
+                a = last_initial_notify is None or now_notify - last_initial_notify >= timedelta(minutes=5)
+
+                if (direction == "" or direction is None) and a:
+                    dir_txt="未判定"
+                    notify_slack(f"[初動判定] 初動方向が不明のためスキップ direction={dir_txt}")
+                    last_initial_notify = now_notify
+
                 continue  # 初動検出されていない場合はスキップ
+            else:
+                last_initial_notify = None
             trend = direction
 
             logging.info(
