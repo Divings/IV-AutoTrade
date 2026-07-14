@@ -243,7 +243,7 @@ def _append_log(reason: str, message: str):
         pass
 
 # 既存互換のエントリポイント
-def notify_slack(message: str):
+def notify_slack(message: str,mode=None):
     """
     既存互換のエントリポイント。
     config.ini の settings:Setdefault に従って Slack または Telegram へ送信する。
@@ -257,21 +257,22 @@ def notify_slack(message: str):
     now = time.time()
     msg_hash = hashlib.sha256(message.encode()).hexdigest()
 
-    # 直前と同一か（メモリ or ファイルの記録で判定）
-    file_hash = _read_last_hash_from_file()
-    is_same_as_memory = (msg_hash == msg_history)
-    is_same_as_file = (file_hash is not None and msg_hash == file_hash)
-    if is_same_as_memory or is_same_as_file:
+    if mode is None:
+        # 直前と同一か（メモリ or ファイルの記録で判定）
+        file_hash = _read_last_hash_from_file()
+        is_same_as_memory = (msg_hash == msg_history)
+        is_same_as_file = (file_hash is not None and msg_hash == file_hash)
+        if is_same_as_memory or is_same_as_file:
         # _append_log("重複抑止(直前と同一)", message)
-        return
+            return
 
-    # クールダウン抑止（ハッシュではなくメッセージ文字列で管理）
-    last_sent = _last_notify_times.get(message)
-    if last_sent and (now - last_sent < _NOTIFY_COOLDOWN_SECONDS):
-        # _append_log("クールダウン抑止", message)
-        return
+        # クールダウン抑止（ハッシュではなくメッセージ文字列で管理）
+        last_sent = _last_notify_times.get(message)
+        if last_sent and (now - last_sent < _NOTIFY_COOLDOWN_SECONDS):
+            # _append_log("クールダウン抑止", message)
+            return
 
-    _last_notify_times[message] = now
+        _last_notify_times[message] = now
 
     # Debug モードなら目印を付与（重複判定には影響させないため、この位置で付与）
     send_text = "[Debug モード] " + message if debug else message

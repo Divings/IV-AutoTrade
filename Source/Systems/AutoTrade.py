@@ -1007,8 +1007,38 @@ def is_trend_initial(candles, min_body_size=0.005, min_breakout_ratio=0.005):
         (prev_low - c3["close"]) >= min_breakout_ratio
     ):
         return True, "SELL"
+    
+
+    # --- 初動不成立ログ ---
+    buy_checks = {
+        "break_high": c3["close"] > prev_high,
+        "bullish": c3["close"] > c3["open"],
+        "body_expand": body_3 > max(body_1, body_2),
+        "three_closes_up": c3["close"] > c2["close"] > c1["close"],
+        "breakout_width": (c3["close"] - prev_high) >= min_breakout_ratio,
+    }
+
+    sell_checks = {
+        "break_low": c3["close"] < prev_low,
+        "bearish": c3["close"] < c3["open"],
+        "body_expand": body_3 > max(body_1, body_2),
+        "three_closes_down": c3["close"] < c2["close"] < c1["close"],
+        "breakout_width": (prev_low - c3["close"]) >= min_breakout_ratio,
+    }
+
+    failed_buy = [k for k, v in buy_checks.items() if not v]
+    failed_sell = [k for k, v in sell_checks.items() if not v]
+
+    with open("/var/log/Autotrade/initial_check.log", "a", encoding="utf-8") as f:
+        f.write(
+            f"{datetime.now():%Y-%m-%d %H:%M:%S} "
+            f"BUY_FAIL={failed_buy} "
+            f"SELL_FAIL={failed_sell}\n"
+        )
 
     return False, ""
+
+last_news_block_notify = None
 
 # ===ログ設定 ===
 LOG_FILE1 = f"/var/log/AutoTrade/fx_debug_log.txt"
@@ -2493,6 +2523,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
     trend = "未判定" # shared_state.get("trend",None)
     trend_candidate = None
     global testmode
+    global last_news_block_notify
     VOL_THRESHOLD_SHORT = 0.0012
     VOL_THRESHOLD_LONG = 0.0018
     import hashlib
@@ -2895,7 +2926,21 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
             if blocked:
                 # ニュースブロックスキップ
                 logging.info(f"[NEWS BLOCK] {currency} ★{importance} {start.strftime('%H:%M')} - {end.strftime('%H:%M')}")
+                
+                now_notify = datetime.now()
+
+                if (
+                    last_news_block_notify is None
+                    or now_notify - last_news_block_notify >= timedelta(minutes=5)
+                ):
+                    notify_slack(
+                        "[指標発表ブロック] 重要指標のためエントリーを見送ります",mode=1
+                    )
+                    last_news_block_notify = now_notify
                 continue
+            else:
+                last_news_block_notify = None
+                
         else:
             logging.info(f"[NEWS BLOCK] 指標ブロック無効化モード (テストモード有効化)")
             testmode = 1
@@ -2930,7 +2975,7 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
 
                 if (direction == "" or direction is None) and a:
                     dir_txt="未判定"
-                    notify_slack(f"[初動判定] 初動方向が不明のためスキップ direction={dir_txt}")
+                    notify_slack(f"[初動判定] 初動方向が不明のためスキップ direction={dir_txt}",mode=1)
                     last_initial_notify = now_notify
 
                 continue  # 初動検出されていない場合はスキップ
