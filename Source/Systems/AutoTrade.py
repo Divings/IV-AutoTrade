@@ -928,7 +928,7 @@ def confirm_signal(direction):
     return False
 
 def write_initiallog(txt):
-    with open("/var/log/Autotrade/initial_check.log", "a", encoding="utf-8") as f:
+    with open("/var/log/AutoTrade/initial_check.log", "a", encoding="utf-8") as f:
         f.write(txt)
 
 max_range_size=0.12
