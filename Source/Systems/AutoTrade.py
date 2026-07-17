@@ -2272,13 +2272,13 @@ def failSafe(values):
         return 1
     from datetime import datetime, timedelta
 
-def build_last_2_candles_from_prices(time_price_buffer: list[dict], interval_sec: int = 60) -> list[dict]:
+def build_last_candles_from_prices(time_price_buffer: list[dict], interval_sec: int = 60,candle_size=2) -> list[dict]:
     """
-    時間ベースで直近2本のローソク足を構築
+    時間ベースで直近のローソク足を構築
     time_price_buffer: [{"ts": datetime, "price": float}, ...]
     """
 
-    if len(time_price_buffer) < 2:
+    if not time_price_buffer:
         return []
 
     data = sorted(time_price_buffer, key=lambda x: x["ts"])
@@ -2292,8 +2292,8 @@ def build_last_2_candles_from_prices(time_price_buffer: list[dict], interval_sec
 
     candles = []
 
-    for i in range(2):
-        start = aligned_end - timedelta(seconds=interval_sec * (2 - i))
+    for i in range(candle_size):
+        start = aligned_end - timedelta(seconds=interval_sec * (candle_size - i))
         end = start + timedelta(seconds=interval_sec)
 
         bucket = [x["price"] for x in data if start <= x["ts"] < end]
@@ -2308,6 +2308,7 @@ def build_last_2_candles_from_prices(time_price_buffer: list[dict], interval_sec
         })
 
     return candles
+
 # # === 直近2本のローソク足構築関数 ===
 # def build_last_2_candles_from_prices(prices: list[float]) -> list[dict]:
 #     """
@@ -2874,8 +2875,8 @@ async def monitor_trend(stop_event, short_period=6, long_period=13, interval_sec
         logging.info(f"[MACD] クロス判定: UP={macd_cross_up}, DOWN={macd_cross_down}")
         logging.info(f"[判定詳細] trend候補={trend}, diff={diff:.5f}, stdev={statistics.stdev(list(price_buffer)[-5:]):.5f}")
         
-        candles = build_last_2_candles_from_prices(time_price_buffer)
-        logging.info(f"[INFO] キャンドルデータ2本分 {candles}")
+        candles = build_last_candles_from_prices(time_price_buffer,candle_size=3)
+        logging.info(f"[INFO] キャンドルデータ3本分 {candles}")
         range_value = calculate_range(price_buffer, period=10)
         if range_value is not None:
             logging.info(f"[INFO] 直近10本の価格レンジ: {range_value:.5f}")
