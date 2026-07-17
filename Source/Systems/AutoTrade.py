@@ -934,7 +934,7 @@ def write_initiallog(txt):
 max_range_size=0.12
 
 # 初動判定関数
-def is_trend_initial(candles, min_body_size=0.005, min_breakout_ratio=0.005):
+def is_trend_initial(candles, min_body_size=0.003, min_breakout_ratio=0.005):
     """
     ローソク足リスト（最低3本）から初動を判定
     """
