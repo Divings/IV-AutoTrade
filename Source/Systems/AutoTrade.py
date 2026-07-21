@@ -981,7 +981,7 @@ def is_trend_initial(candles, min_body_size=0.003, min_breakout_ratio=0.005):
         write_initiallog(f"[フラッシュ除外] 値幅異常 range_3={range_3:.3f}\n")
         return False, ""
 
-    if body_3 < min_body_size:
+    if body_3 + 1e-9 < min_body_size:
         logging.info(f"[初動除外] body_3不足 body_3={body_3:.5f}")
         write_initiallog(f"[初動除外] body_3不足 body_3={body_3:.5f}\n")
         return False, ""
@@ -990,7 +990,13 @@ def is_trend_initial(candles, min_body_size=0.003, min_breakout_ratio=0.005):
         logging.info(
             f"[初動除外] ヒゲ比率過多 range_3={range_3:.5f} body_3={body_3:.5f} ratio={range_3/body_3:.2f}"
         )
-        write_initiallog(f"[初動除外] ヒゲ比率過多 range_3={range_3:.5f} body_3={body_3:.5f} ratio={range_3/body_3:.2f}\n")
+        write_initiallog(
+            f"[初動除外] body_3不足 \n"
+            f"body_3={body_3!r} \n"
+            f"min_body_size={min_body_size!r} \n"
+            f"body_3+eps={(body_3 + 1e-9)!r} \n"
+            f"判定={(body_3 + 1e-9 < min_body_size)}\n"
+        )
         return False, ""
 
     prev_high = max(c1["high"], c2["high"])
