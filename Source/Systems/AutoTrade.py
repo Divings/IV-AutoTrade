@@ -962,42 +962,44 @@ def is_trend_initial(candles, min_body_size=0.003, min_breakout_ratio=0.005):
         write_initiallog("[初動除外] body_3=0\n")
         return False, ""
 
-    if upper_wick_3 > body_3 * 1.2:
-        logging.info(
-            f"[初動除外] 上ヒゲ過多 upper_wick={upper_wick_3:.5f} body_3={body_3:.5f} ratio={upper_wick_3/body_3:.2f}"
-        )
-        write_initiallog(f"[初動除外] 上ヒゲ過多 upper_wick={upper_wick_3:.5f} body_3={body_3:.5f} ratio={upper_wick_3/body_3:.2f}\n")
-        return False, ""
-
-    if lower_wick_3 > body_3 * 1.2:
-        logging.info(
-            f"[初動除外] 下ヒゲ過多 lower_wick={lower_wick_3:.5f} body_3={body_3:.5f} ratio={lower_wick_3/body_3:.2f}"
-        )
-        write_initiallog(f"[初動除外] 下ヒゲ過多 lower_wick={lower_wick_3:.5f} body_3={body_3:.5f} ratio={lower_wick_3/body_3:.2f}\n")
-        return False, ""
-
-    if range_3 > max_range_size:
-        logging.info(f"[フラッシュ除外] 値幅異常 range_3={range_3:.3f}")
-        write_initiallog(f"[フラッシュ除外] 値幅異常 range_3={range_3:.3f}\n")
-        return False, ""
-
     if body_3 + 1e-9 < min_body_size:
         logging.info(f"[初動除外] body_3不足 body_3={body_3:.5f}")
         write_initiallog(f"[初動除外] body_3不足 body_3={body_3:.5f}\n")
         return False, ""
 
-    if (range_3 / body_3) > 4:
-        logging.info(
-            f"[初動除外] ヒゲ比率過多 range_3={range_3:.5f} body_3={body_3:.5f} ratio={range_3/body_3:.2f}"
-        )
-        write_initiallog(
-            f"[初動除外] body_3不足 \n"
-            f"body_3={body_3!r} \n"
-            f"min_body_size={min_body_size!r} \n"
-            f"body_3+eps={(body_3 + 1e-9)!r} \n"
-            f"判定={(body_3 + 1e-9 < min_body_size)}\n"
-        )
-        return False, ""
+    # ヒゲ比率チェック(USE_STDEVが有効な場合はスキップ有効)
+    if USE_STDEV == 1: 
+        if upper_wick_3 > body_3 * 2.5:
+            logging.info(
+                f"[初動除外] 上ヒゲ過多 upper_wick={upper_wick_3:.5f} body_3={body_3:.5f} ratio={upper_wick_3/body_3:.2f}"
+            )
+            write_initiallog(f"[初動除外] 上ヒゲ過多 upper_wick={upper_wick_3:.5f} body_3={body_3:.5f} ratio={upper_wick_3/body_3:.2f}\n")
+            return False, ""
+
+        if lower_wick_3 > body_3 * 1.2:
+            logging.info(
+                f"[初動除外] 下ヒゲ過多 lower_wick={lower_wick_3:.5f} body_3={body_3:.5f} ratio={lower_wick_3/body_3:.2f}"
+            )
+            write_initiallog(f"[初動除外] 下ヒゲ過多 lower_wick={lower_wick_3:.5f} body_3={body_3:.5f} ratio={lower_wick_3/body_3:.2f}\n")
+            return False, ""
+
+        if range_3 > max_range_size:
+            logging.info(f"[フラッシュ除外] 値幅異常 range_3={range_3:.3f}")
+            write_initiallog(f"[フラッシュ除外] 値幅異常 range_3={range_3:.3f}\n")
+            return False, ""
+
+        if (range_3 / body_3) > 4:
+            logging.info(
+                f"[初動除外] ヒゲ比率過多 range_3={range_3:.5f} body_3={body_3:.5f} ratio={range_3/body_3:.2f}"
+            )
+            write_initiallog(
+                f"[初動除外] body_3不足 \n"
+                f"body_3={body_3!r} \n"
+                f"min_body_size={min_body_size!r} \n"
+                f"body_3+eps={(body_3 + 1e-9)!r} \n"
+                f"判定={(body_3 + 1e-9 < min_body_size)}\n"
+            )
+            return False, ""
 
     prev_high = max(c1["high"], c2["high"])
     prev_low = min(c1["low"], c2["low"])
