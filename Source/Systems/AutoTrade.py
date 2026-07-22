@@ -1045,7 +1045,7 @@ def is_trend_initial(candles, min_body_size=0.003, min_breakout_ratio=0.005):
     failed_buy = [k for k, v in buy_checks.items() if not v]
     failed_sell = [k for k, v in sell_checks.items() if not v]
 
-    with open("/var/log/Autotrade/initial_check.log", "a", encoding="utf-8") as f:
+    with open("/var/log/AutoTrade/initial_check.log", "a", encoding="utf-8") as f:
         f.write(
             f"{datetime.now():%Y-%m-%d %H:%M:%S} "
             f"BUY_FAIL={failed_buy} "
